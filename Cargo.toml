@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/piwis-val",
+    "crates/piwis-zdc",
 ]
 
 [package]
@@ -12,6 +13,7 @@ edition = "2021"
 anyhow = "1.0.86"
 clap = { version = "4.5.16", features = ["derive"] }
 piwis-val = { path = "crates/piwis-val" }
+piwis-zdc = { path = "crates/piwis-zdc" }
 quick-xml = { version = "0.36.1", features = ["serialize", "encoding"] }
 serde = { version = "1.0.209", features = ["derive"] }
 serde_path_to_error = "0.1.16"
