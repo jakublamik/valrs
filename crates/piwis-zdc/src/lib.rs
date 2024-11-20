@@ -5,9 +5,10 @@ use anyhow::Context;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_untagged::UntaggedEnumVisitor;
 
-#[derive(Deserialize, Serialize, Debug)]
+
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
-pub struct ZdcSession {
+pub struct ZdcInstructionList {
     #[serde(rename = "@xmlns")]
     pub xmlns: String,
     #[serde(rename = "@ZDCFile")]
@@ -21,13 +22,25 @@ pub struct ZdcSession {
     #[serde(rename = "ShortNameService")]
     pub short_name_service : Vec<ShortNameService>,
     #[serde(rename = "Warten")]
-    pub warten : Vec<Warten>,
+    pub warten : Option<Vec<Warten>>,
     #[serde(rename = "HexService")]
-    pub hex_service : HexService,
+    pub hex_service : Vec<HexService>,
 }
 
-impl ZdcSession {
-    pub fn from_directory(directory: &str) -> anyhow::Result<ZdcSession> {
+/*
+pub zdc_instruction: Vec<ZdcInstruction>,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub enum ZdcInstruction {
+    ShortName(ShortNameService),
+    Wait(Warten),
+    Hex(HexService),
+}
+ */
+
+impl ZdcInstructionList {
+    pub fn from_directory(directory: &str) -> anyhow::Result<ZdcInstructionList> {
         let path = Path::new(directory);
         if !path.is_dir() {
             return Err(anyhow::anyhow!("Provided path is not a directory."));
@@ -46,17 +59,21 @@ impl ZdcSession {
                     let reader = BufReader::new(file);
                     let zdc = &mut quick_xml::de::Deserializer::from_reader(reader);
                     // Pass the BufReader to quick_xml for processing
-                    let deserialized: ZdcSession = serde_path_to_error::deserialize(zdc).context("Failed deserializing")?;
+                    let deserialized: ZdcInstructionList = serde_path_to_error::deserialize(zdc).context("Failed deserializing")?;
                     return Ok(deserialized);
                 }
             }
         }
         Err(anyhow::anyhow!("Could not find IExIL ZDC files in directory."))
     }
+/*
+    pub fn get_hex_service_by_phase(&self, phase: &str) -> Option<&HexService> {
+        self.hex_service.iter().find(|s| s.get_phase) == phase)
+    }
 
     pub fn get_section_by_title(&self, title: &str) -> Option<&Section> {
-        self.hex_service.sections.iter().find(|s| s.get_title() == title)
-    }
+        self.hex_service.human_translations.sections.iter().find(|s| s.get_title() == title)
+    } */
 }
 
 
@@ -145,13 +162,12 @@ pub struct Warten {
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
 pub struct HexService {
-
     #[serde(rename = "@ID")]
     pub id: String,
     #[serde(rename = "@Phase")]
     pub phase: String,
     #[serde(rename = "@PhaseDetail")]
-    pub phase_detail: String,
+    pub phase_detail: Option<String>,
     #[serde(rename = "@did")]
     pub did: Option<String>,   
     #[serde(rename = "@Bewertung")]
@@ -166,9 +182,19 @@ pub struct HexService {
     pub response: Option<String>,
     #[serde(rename = "HumanTranslations")]
     pub human_translations: HumanTranslations,
-    pub sections: Vec<Section>,
 }
-
+/*
+impl HexService {
+    fn get_phase(&self, title: &String) -> Option<Measurement> {
+        for m in measurements {
+            if m.get_title() == title {
+                return Some(m.clone());
+            }
+        }
+        None
+    }
+}
+ */
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
 pub struct HumanTranslations {
@@ -179,16 +205,36 @@ pub struct HumanTranslations {
     #[serde(rename = "@ServiceName")]
     pub service_name: Option<String>,
     #[serde(rename = "Translation")]
-    pub translations: Option<Vec<Translations>>,
+ //   pub translation: Vec<Translation>,
+    pub translation: Option<Vec<Translation>>,
+// pub sections: Vec<Section>,
 }
+
+/*
+impl HumanTranslations {
+    pub fn get_parameter_name(&self) -> Option<&str> {
+      self.name.as_ref().map(|name| name.as_ref())
+    }
+  }
+
+impl HumanTranslations {
+    pub fn get_service_name(&self) -> Option<&String> {
+        match self {
+            ValueEnum::Num(n) => n.unit.as_ref(),
+            _ => None,
+        }
+    }
+}
+ */
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
-pub struct Translations {
+pub struct Translation {
     #[serde(rename = "@ParameterName")]
     pub parameter_name: String,
     #[serde(rename = "@BytePosition")]
     pub byte_position: String,
+    #[serde(rename = "@LSB")]
     pub lsb: String,
     #[serde(rename = "@BitLength")]
     pub bit_length: String,
@@ -198,6 +244,28 @@ pub struct Translations {
     pub value: String,
 }
 
+
+
+/*
+impl Translation {
+    pub fn get_parameter_name(&self) -> &String {
+        match self {
+            Section::ECU(section) => &section.title,
+        }
+    }
+    pub fn get_measurements(&self) -> &Vec<Measurement> {
+        match self {
+            Section::ECU(section) => &section.measurements,
+        }
+    }
+    #[allow(dead_code)]
+    fn get_measurement_by_title(&self, title: &String) -> Option<Measurement> {
+        match self {
+            Section::ECU(section) => get_measurement_by_title(&section.measurements, title),
+        }
+    }
+}
+ */
 /* Here comes the rest  */
 
 #[derive(Serialize, Debug)]
