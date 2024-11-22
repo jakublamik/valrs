@@ -3,68 +3,67 @@ use std::io::BufReader;
 use std::path::Path;
 use anyhow::Context;
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_untagged::UntaggedEnumVisitor;
-
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
-pub struct ZdcInstructionList {
+#[serde(deny_unknown_fields)]
+pub struct InstrLst {
     #[serde(rename = "@xmlns")]
     pub xmlns: String,
     #[serde(rename = "@ZDCFile")]
     pub zdc_file: String,
     #[serde(rename = "@DATEI-ID")]
-    pub datei_id: String,
+    pub file_id: String,
     #[serde(rename = "@VERSION-INHALT")]
-    pub version_inhalt: String,
+    pub ver_content: String,
     #[serde(rename = "diagnosisAddress")]
-    pub diagnosis_address : DiagnosisAddress,
-    #[serde(rename = "ShortNameService")]
-    pub short_name_service : Vec<ShortNameService>,
-    #[serde(rename = "Warten")]
-    pub warten : Option<Vec<Warten>>,
-    #[serde(rename = "HexService")]
-    pub hex_service : Vec<HexService>,
+    pub diag_addr : DiagAddr,
+    #[serde(rename="$value")]
+    pub lst: Vec<Instr>,
 }
 
-/*
-pub zdc_instruction: Vec<ZdcInstruction>,
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub enum Instr {
+    ShortNameService(ShortNameSrv),
+    Warten(Wait),
+    HexService(HexSrv),
+    FlashSession(FlashSession),
+    DataSets(DataSets),
+    EcuDefinition(EcuDef),
+    Service(Srv),
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq)]
-pub enum ZdcInstruction {
-    ShortName(ShortNameService),
-    Wait(Warten),
-    Hex(HexService),
-}
- */
-
-impl ZdcInstructionList {
-    pub fn from_directory(directory: &str) -> anyhow::Result<ZdcInstructionList> {
+impl InstrLst {
+    pub fn from_dir(directory: &str) -> anyhow::Result<Vec<InstrLst>> {
         let path = Path::new(directory);
         if !path.is_dir() {
             return Err(anyhow::anyhow!("Provided path is not a directory."));
         }
+        
+        let mut result = Vec::new();
 
         for entry in fs::read_dir(path)? {
+            
+            
             let entry = entry?;
             let file_path = entry.path();
-    
-            // Check if the file has a .xml extension and contains "IExIL" in the filename
+            
+
             if let Some(file_name) = file_path.file_name().and_then(|n| n.to_str()) {
+//                if file_path.extension().and_then(|ext| ext.to_str()) == Some("xml") {
                 if file_name.contains("IExIL") && file_path.extension().and_then(|ext| ext.to_str()) == Some("xml") {
-                    println!("Filename: {}", file_name);
-                    // Open the file as BufReader
+                    println!("Processing file: {}", file_name);
+
                     let file = File::open(&file_path)?;
                     let reader = BufReader::new(file);
-                    let zdc = &mut quick_xml::de::Deserializer::from_reader(reader);
-                    // Pass the BufReader to quick_xml for processing
-                    let deserialized: ZdcInstructionList = serde_path_to_error::deserialize(zdc).context("Failed deserializing")?;
-                    return Ok(deserialized);
+                    let instr_lst = &mut quick_xml::de::Deserializer::from_reader(reader);
+
+                    let deserialized: InstrLst = serde_path_to_error::deserialize(instr_lst).context("Failed deserializing")?;
+                    result.push(deserialized);
                 }
             }
         }
-        Err(anyhow::anyhow!("Could not find IExIL ZDC files in directory."))
+        return Ok(result);
     }
 /*
     pub fn get_hex_service_by_phase(&self, phase: &str) -> Option<&HexService> {
@@ -76,11 +75,9 @@ impl ZdcInstructionList {
     } */
 }
 
-
-
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
-pub struct DiagnosisAddress {
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiagAddr {
     #[serde(rename = "@codingOrder")]
     pub coding_order: String,
     #[serde(rename = "@IVD")]
@@ -91,47 +88,67 @@ pub struct DiagnosisAddress {
     pub value: String,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
-pub struct ShortNameService {
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShortNameSrv {
     #[serde(rename = "@ID")]
     pub id: String,
     #[serde(rename = "@Phase")]
     pub phase: String,
     #[serde(rename = "@PhaseDetail")]
-    pub phase_detail: String,
+    pub phase_detail: Option<String>,
     #[serde(rename = "@Mode")]
     pub mode: Option<String>,
     #[serde(rename = "@Bewertung")]
-    pub bewertung: Option<String>,
+    pub eval: Option<String>,
     #[serde(rename = "Kommentar")]
-    pub kommentar: Kommentar,
+    pub comment: Comment,
+    #[serde(rename = "DataSets")]
+    pub data_sets: Option<DataSets>,
     #[serde(rename = "Request")]
     pub request: Request,
     #[serde(rename = "Response")]
     pub response: Option<Response>,
+    #[serde(rename = "HumanTranslations")]
+    pub transl: Option<Transl>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FlashSession {
+    #[serde(rename = "@ID")]
+    pub id: String,
+    #[serde(rename = "@Phase")]
+    pub phase: String,
+    #[serde(rename = "Kommentar")]
+    pub comment: Comment,
+    #[serde(rename = "Request")]
+    pub request: Request,
+    #[serde(rename = "Response")]
+    pub response: Option<Response>,
+
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Request {
     #[serde(rename = "@Value")]
     pub value: Option<String>,
     #[serde(rename = "Parameter")]
-    parameter: Option<Vec<Parameter>>, 
+    param: Option<Vec<Parameter>>, 
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Response {
     #[serde(rename = "@Value")]
     pub value: Option<String>,
     #[serde(rename = "Parameter")]
-    parameter: Option<Vec<Parameter>>, 
+    param: Option<Vec<Parameter>>, 
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Parameter {
     #[serde(rename = "@ShortName")]
     pub short_name: String,
@@ -141,18 +158,18 @@ pub struct Parameter {
     pub xml_space: Option<String>, 
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
-pub struct Kommentar {
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Comment {
     #[serde(rename = "@space")]
     pub xml_space: String,
     #[serde(rename = "$text")]
     pub value: Option<String>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
-pub struct Warten {
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Wait {
     #[serde(rename = "@ID")]
     pub id: String,
     #[serde(rename = "$text")]
@@ -160,8 +177,8 @@ pub struct Warten {
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
-pub struct HexService {
+#[serde(deny_unknown_fields)]
+pub struct HexSrv {
     #[serde(rename = "@ID")]
     pub id: String,
     #[serde(rename = "@Phase")]
@@ -170,74 +187,62 @@ pub struct HexService {
     pub phase_detail: Option<String>,
     #[serde(rename = "@did")]
     pub did: Option<String>,   
+    #[serde(rename = "@Mode")]
+    pub mode: Option<String>,   
     #[serde(rename = "@Bewertung")]
-    pub bewertung: String,
+    pub eval: String,
     #[serde(rename = "Kommentar")]
-    pub kommentar: Kommentar,
+    pub comment: Comment,
     #[serde(rename = "Request")]
-    pub request: String,
+    pub req: String,
     #[serde(rename = "ExpectedValue")]
-    pub expected_value: Option<String>,
+    pub exp_value: Option<String>,
     #[serde(rename = "Response")]
-    pub response: Option<String>,
+    pub re: Option<String>,
     #[serde(rename = "HumanTranslations")]
-    pub human_translations: HumanTranslations,
+    pub transl: Transl,
 }
-/*
-impl HexService {
-    fn get_phase(&self, title: &String) -> Option<Measurement> {
-        for m in measurements {
-            if m.get_title() == title {
-                return Some(m.clone());
-            }
-        }
-        None
-    }
-}
- */
+
 #[derive(Deserialize, Serialize, Debug)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
-pub struct HumanTranslations {
+#[serde(deny_unknown_fields)]
+pub struct Transl {
     #[serde(rename = "@ServiceID")]
-    pub service_id: Option<String>,
+    pub srv_id: Option<String>,
     #[serde(rename = "@RDIdentifier")]
-    pub rd_identifier: Option<String>,
+    pub rd_id: Option<String>,
     #[serde(rename = "@ServiceName")]
-    pub service_name: Option<String>,
+    pub srv_name: Option<String>,
+     #[serde(rename = "DatasetTranslation")]
+    pub dataset_transl: Option<Vec<DatasetTransl>>,
     #[serde(rename = "Translation")]
- //   pub translation: Vec<Translation>,
-    pub translation: Option<Vec<Translation>>,
-// pub sections: Vec<Section>,
-}
+    pub params: Option<Vec<Params>>,
 
-/*
-impl HumanTranslations {
-    pub fn get_parameter_name(&self) -> Option<&str> {
-      self.name.as_ref().map(|name| name.as_ref())
-    }
-  }
-
-impl HumanTranslations {
-    pub fn get_service_name(&self) -> Option<&String> {
-        match self {
-            ValueEnum::Num(n) => n.unit.as_ref(),
-            _ => None,
-        }
-    }
 }
- */
 
 #[derive(Deserialize, Serialize, Debug)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
-pub struct Translation {
+#[serde(deny_unknown_fields)]
+pub struct DatasetTransl {
+    #[serde(rename = "@RDIdentifier")]
+    pub rd_id: String,
+    #[serde(rename = "@ServiceName")]
+    pub srv_name: String,
+    #[serde(rename = "@HexValue")]
+    pub hex_value: String,
+    #[serde(rename = "$text")]
+    pub value: String,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Params {
     #[serde(rename = "@ParameterName")]
-    pub parameter_name: String,
+    pub name: String,
     #[serde(rename = "@BytePosition")]
-    pub byte_position: String,
+    pub byte_pos: String,
     #[serde(rename = "@LSB")]
     pub lsb: String,
     #[serde(rename = "@BitLength")]
-    pub bit_length: String,
+    pub bit_len: String,
     #[serde(rename = "@HexValue")]
     pub hex_value: String,
     #[serde(rename = "$text")]
@@ -246,384 +251,295 @@ pub struct Translation {
 
 
 
-/*
-impl Translation {
-    pub fn get_parameter_name(&self) -> &String {
-        match self {
-            Section::ECU(section) => &section.title,
-        }
-    }
-    pub fn get_measurements(&self) -> &Vec<Measurement> {
-        match self {
-            Section::ECU(section) => &section.measurements,
-        }
-    }
-    #[allow(dead_code)]
-    fn get_measurement_by_title(&self, title: &String) -> Option<Measurement> {
-        match self {
-            Section::ECU(section) => get_measurement_by_title(&section.measurements, title),
-        }
-    }
-}
- */
-/* Here comes the rest  */
-
-#[derive(Serialize, Debug)]
-#[serde(deny_unknown_fields, tag = "@OBJECT")]
-pub enum Section {
-    ECU(ECUSection)
-}
-
-impl Section {
-    pub fn get_title(&self) -> &String {
-        match self {
-            Section::ECU(section) => &section.title,
-        }
-    }
-    pub fn get_measurements(&self) -> &Vec<Measurement> {
-        match self {
-            Section::ECU(section) => &section.measurements,
-        }
-    }
-    #[allow(dead_code)]
-    fn get_measurement_by_title(&self, title: &String) -> Option<Measurement> {
-        match self {
-            Section::ECU(section) => get_measurement_by_title(&section.measurements, title),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for Section {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        UntaggedEnumVisitor::new()
-            .map(|map| {
-                let value: CommonSection = map.deserialize()?;
-                match value.object.as_str() {
-                    "ECU" => Ok(Section::ECU(ECUSection::from(value))),
-                    _ => {
-                        Err(serde::de::Error::custom(format!("'{}' not implemented", value.object.as_str())))
-                    }
-                }
-            })
-            .deserialize(deserializer)
-    }
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DataSets {
+    #[serde(rename = "DataSet")]
+    pub data_set: Vec<DataSet>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
-pub struct CommonSection {
-    #[serde(rename = "@OBJECT")]
-    pub object: String,
-    #[serde(rename = "TITLE")]
-    pub title: String,
-    #[serde(rename = "MEAS")]
-    pub measurements: Vec<Measurement>,
-}
-
-#[derive(Serialize, Debug)]
-pub struct ECUSection {
-    #[serde(rename = "TITLE")]
-    pub title: String,
-    #[serde(rename = "MEAS")]
-    pub measurements: Vec<Measurement>,
-}
-
-impl From<CommonSection> for ECUSection {
-    fn from(m: CommonSection) -> Self {
-        ECUSection {
-            title: m.title,
-            measurements: m.measurements,
-        }
-    }
-}
-
-fn get_measurement_by_title(measurements: &Vec<Measurement>, title: &String) -> Option<Measurement> {
-    for m in measurements {
-        if m.get_title() == title {
-            return Some(m.clone());
-        }
-    }
-    None
-}
-
-#[derive(Serialize, Debug, Clone, PartialEq)]
-pub enum Measurement {
-    Codierung(MeasurementCoding),
-    Identifikation(MeasurementIdentification),
-    Fehler(MeasurementMistake),
-    Messwerte(MeasurementMeasuredValues),
-    ErweiterterFehlerspeicher(MeasurementExtendedErrorMemory),
-}
-
-impl Measurement {
-    pub fn get_title(&self) -> &String {
-        match self {
-            Measurement::Codierung(m) => &m.title,
-            Measurement::Identifikation(m) => &m.title,
-            Measurement::Fehler(m) => &m.title,
-            Measurement::Messwerte(m) => &m.title,
-            Measurement::ErweiterterFehlerspeicher(m) => &m.title,
-        }
-    }
-
-    pub fn get_values(&self) -> Option<&Vec<ValueEnum>> {
-        match self {
-            Measurement::Codierung(m) => m.values.as_ref(),
-            Measurement::Identifikation(m) => m.values.as_ref(),
-            Measurement::Fehler(m) => m.values.as_ref(),
-            Measurement::Messwerte(m) => m.values.as_ref(),
-            Measurement::ErweiterterFehlerspeicher(m) => m.values.as_ref(),
-        }
-    }
-
-    #[allow(dead_code)]
-    fn get_value_by_label(&self, label: &String) -> Option<&ValueEnum> {
-        match self.get_values() {
-            Some(values) => values.iter().find(|v| match v {
-                ValueEnum::Num(n) => &n.label == label,
-                ValueEnum::Alpha(a) => &a.label == label,
-            }),
-            _ => None,
-        }
-    }
-
-    pub fn get_submeasurements(&self) -> Option<&Vec<Measurement>> {
-        match self {
-            Measurement::Fehler(m) => m.measurements.as_ref(),
-            _ => None,
-        }
-    }
-
-    #[allow(dead_code)]
-    fn get_submeasurement_by_title(&self, title: &String) -> Option<Measurement> {
-        match self {
-            Measurement::Fehler(m) => match &m.measurements {
-                Some(measurements) => get_measurement_by_title(&measurements, title),
-                _ => None,
-            }
-            _ => None
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for Measurement {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        UntaggedEnumVisitor::new()
-            .map(|map| {
-                let value: CommonMeasurement = map.deserialize()?;
-                match value.object.as_str() {
-                    "Codierung" => Ok(Measurement::Codierung(MeasurementCoding::from(value))),
-                    "Identifikation" => Ok(Measurement::Identifikation(MeasurementIdentification::from(value))),
-                    "Fehler" => Ok(Measurement::Fehler(MeasurementMistake::from(value))),
-                    "Messwerte" => Ok(Measurement::Messwerte(MeasurementMeasuredValues::from(value))),
-                    "Erweiterter Fehlerspeicher" => Ok(Measurement::ErweiterterFehlerspeicher(MeasurementExtendedErrorMemory::from(value))),
-                    _ => {
-                        Err(serde::de::Error::custom(format!("'{}' not implemented", value.object.as_str())))
-                    }
-                }
-            })
-            .deserialize(deserializer)
-    }
+#[serde(deny_unknown_fields)]
+pub struct DataSet {
+    #[serde(rename = "@did")]
+    pub did: String,
+    #[serde(rename = "@Bewertung")]
+    pub eval: Option<String>,
+    #[serde(rename = "name")]
+    pub name: String,
+    #[serde(rename = "value")]
+    pub value: Option<String>,
+    #[serde(rename = "Kommentar")]
+    pub comment: Option<String>,
 }
 
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
-struct CommonMeasurement {
-    #[serde(rename = "@OBJECT")]
-    object: String,
-    #[serde(rename = "TITLE")]
-    title: String,
-    #[serde(rename = "VALUE")]
-    values: Option<Vec<ValueEnum>>,
-    #[serde(rename = "MEAS")]
-    measurements: Option<Vec<Measurement>>,
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct EcuDef {
+    #[serde(rename = "@AlwaysCoding")]
+    pub always_coding: String,
+    #[serde(rename = "@AlwaysDSDL")]
+    pub always_dsl: String,
+    #[serde(rename = "@CreateDSDLControlFile")]
+    pub create_ctrl_file: String,
+    #[serde(rename = "@AlwaysReadAll")]
+    pub always_rd_all: String,
+    #[serde(rename = "@UseDSName")]
+    pub use_ds_name: String, 
+    #[serde(rename = "@DSCheck")]
+    pub ds_check: String,
+    #[serde(rename = "@ECUName")]
+    pub ecu_name: Option<String>,
+    #[serde(rename = "@DiagAddress")]
+    pub diag_addr: Option<String>,
+    #[serde(rename = "@diagnosisClass")]
+    pub diag_class: Option<String>,
+    #[serde(rename = "@nodeAddress")]
+    pub node_addr: Option<String>,
+    #[serde(rename = "@diagnosisAddressMaster")]
+    pub diag_addr_master: Option<String>,
+    #[serde(rename = "PreCodingInstructions")]
+    pub pre: Instructions, 
+    #[serde(rename = "Coding")]
+    pub coding: Coding, 
+    #[serde(rename = "PostCodingInstructions")]
+    pub post: Instructions, 
+    #[serde(rename = "NegativeResponses")]
+    pub neg_respones: NegResponses, 
+    #[serde(rename = "IVD")]
+    pub ivd: Vec<VehicleProtection>,
+    #[serde(rename = "SFD")]
+    pub sfd: Vec<VehicleProtection>,
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq)]
-pub struct MeasurementCoding {
-    pub title: String,
-    pub values: Option<Vec<ValueEnum>>,
+
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Instructions {
+    #[serde(rename = "Instruction")]
+    pub instr: Vec<Instruction>,
 }
 
-impl From<CommonMeasurement> for MeasurementCoding {
-    fn from(m: CommonMeasurement) -> Self {
-        if m.measurements != None {
-            panic!("unexpected measurements for MeasurementCoding");
-        }
-        MeasurementCoding {
-            title: m.title,
-            values: m.values,
-        }
-    }
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Instruction {
+    #[serde(rename = "@Mode")]
+    pub mode: Option<String>,
+    #[serde(rename = "@IsWriteInstruction")]
+    pub is_wrt_inst: String,
+    #[serde(rename = "ShortNameService")]
+    pub short_name_srv: Option<InstructionShortNameSrv>,
+    #[serde(rename = "HexService")]
+    pub hex_srv: Option<String>,
+    #[serde(rename = "Wait")]
+    pub wait: Option<String>,
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq)]
-pub struct MeasurementIdentification {
-    pub title: String,
-    pub values: Option<Vec<ValueEnum>>,
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct InstructionShortNameSrv {
+    #[serde(rename = "@ShortName")]
+    pub short_name: String,
+    #[serde(rename = "Parameters")]
+    pub params: Option<PrePostParams>,
 }
 
-impl From<CommonMeasurement> for MeasurementIdentification {
-    fn from(m: CommonMeasurement) -> Self {
-        if m.measurements != None {
-            panic!("unexpected measurements for MeasurementIdentification");
-        }
-        MeasurementIdentification {
-            title: m.title,
-            values: m.values,
-        }
-    }
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct PrePostParams {
+    #[serde(rename = "Parameter")]
+    pub param: Option<PrePostParam>,
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq)]
-pub struct MeasurementMeasuredValues {
-    pub title: String,
-    pub values: Option<Vec<ValueEnum>>,
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct PrePostParam {
+    #[serde(rename = "@ShortName")]
+    pub short_name: String,
+    #[serde(rename = "ZDCValue")]
+    pub zdc_value: ZdcValue,
 }
 
-impl From<CommonMeasurement> for MeasurementMeasuredValues {
-    fn from(m: CommonMeasurement) -> Self {
-        if m.measurements != None {
-            panic!("unexpected measurements for MeasurementMeasuredValues");
-        }
-        MeasurementMeasuredValues {
-            title: m.title,
-            values: m.values,
-        }
-    }
-}
-
-#[derive(Serialize, Debug, Clone, PartialEq)]
-pub struct MeasurementMistake {
-    pub title: String,
-    pub values: Option<Vec<ValueEnum>>,
-    pub measurements: Option<Vec<Measurement>>,
-}
-
-impl From<CommonMeasurement> for MeasurementMistake {
-    fn from(m: CommonMeasurement) -> Self {
-        MeasurementMistake {
-            title: m.title,
-            values: m.values,
-            measurements: m.measurements,
-        }
-    }
-}
-
-#[derive(Serialize, Debug, Clone, PartialEq)]
-pub struct MeasurementExtendedErrorMemory {
-    pub title: String,
-    pub values: Option<Vec<ValueEnum>>,
-}
-
-impl From<CommonMeasurement> for MeasurementExtendedErrorMemory {
-    fn from(m: CommonMeasurement) -> Self {
-        MeasurementExtendedErrorMemory {
-            title: m.title,
-            values: m.values,
-        }
-    }
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE", tag = "@FORMAT")]
-pub enum ValueEnum {
-    Num(NumberValue),
-    Alpha(AlphaValue),
-}
-
-impl ValueEnum {
-    pub fn get_label(&self) -> &String {
-        match self {
-            ValueEnum::Num(n) => &n.label,
-            ValueEnum::Alpha(a) => &a.label,
-        }
-    }
-
-    pub fn get_text(&self) -> &String {
-        match self {
-            ValueEnum::Num(n) => &n.text,
-            ValueEnum::Alpha(a) => &a.text,
-        }
-    }
-
-    pub fn get_unit(&self) -> Option<&String> {
-        match self {
-            ValueEnum::Num(n) => n.unit.as_ref(),
-            _ => None,
-        }
-    }
-
-    pub fn get_value(&self) -> Option<&String> {
-        match self {
-            ValueEnum::Num(n) => Some(&n.value),
-            ValueEnum::Alpha(a) => a.value.as_ref(),
-        }
-    }
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
-pub struct NumberValue {
-    #[serde(rename = "@TEXT")]
-    pub text: String,
-    #[serde(rename = "@UNIT")]
-    pub unit: Option<String>,
-    #[serde(rename = "@LABEL")]
-    pub label: String,
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ZdcValue {
     #[serde(rename = "$text")]
     pub value: String,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
-pub struct AlphaValue {
-    #[serde(rename = "@TEXT")]
-    pub text: String,
-    #[serde(rename = "@LABEL")]
-    pub label: String,
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Coding {
+    #[serde(rename = "PostModeInstructions")]
+    pub post_mode_instr: Option<PostModeInstructions>,
+    #[serde(rename = "FlashJob")]
+    pub flash_job: Option<FlashJob>,
+    #[serde(rename = "FlashService")]
+    pub flash_srv: Option<FlashSrv>,
+    #[serde(rename = "ReadServices")]
+    pub read_srvs: ReadSrvs
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct PostModeInstructions {
+    #[serde(rename = "PostModeInstruction")]
+    pub instr: Vec<Instruction>,
+}
+/*
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct PostModeInstruction {
+    #[serde(rename = "@Mode")]
+    pub mode: String,
+    #[serde(rename = "@IsWriteInstruction")]
+    pub is_wrt_inst: String,
+    #[serde(rename = "ShortNameService")]
+    pub short_name_srv: Option<InstructionShortNameSrv>,
+    #[serde(rename = "Wait")]
+    pub wait: Option<String>,
+}
+ */
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct FlashJob {
+    #[serde(rename = "@ShortName")]
+    pub short_name: String,
+    #[serde(rename = "@SessionShortName")]
+    pub session_short_name: Option<String>,
+    #[serde(rename = "@ParameterNameControlFile")]
+    pub param_name_ctrl_file: String,
+    #[serde(rename = "Parameters")]
+    pub params: Option<PrePostParams>,
+    #[serde(rename = "Responses")]
+    pub responses: CodingResponses,
+    #[serde(rename = "ReadService")]
+    pub read: FlashJobRe,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct FlashJobRe {
+    #[serde(rename = "@ShortName")]
+    pub short_name: String,
+    #[serde(rename = "Parameters")]
+    pub params: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct FlashSrv {
+    #[serde(rename = "@ShortName")]
+    pub short_name: String,
+    #[serde(rename = "@ParameterNameData")]
+    pub param_name_data: String,
+    #[serde(rename = "@ParameterNameSize")]
+    pub param_name_size: String,
+    #[serde(rename = "@ParameterNameStartAddress")]
+    pub param_name_str_addr: String,
+    #[serde(rename = "@ParameterNameKodiercontainerPartNumber")]
+    pub param_name_container_pn: String,
+    #[serde(rename = "@ParameterNameKodiercontainerVersion")]
+    pub param_name_container_ver: String,
+    #[serde(rename = "Responses")]
+    pub re: CodingResponses,    
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CodingResponses {
+    #[serde(rename = "Response")]
+    pub response: Vec<CodingResponse>,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CodingResponse {
+    #[serde(rename = "@ShortName")]
+    pub short_name: String,
+    #[serde(rename = "@Rating")]
+    pub rating: String,
     #[serde(rename = "$text")]
     pub value: Option<String>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ReadSrvs {
+    #[serde(rename = "ReadService")]
+    pub read_service: ReadSrv,    
+}
 
-    #[test]
-    fn test() {
-        let val = VehicleAnalysisLog::from_zip("tests/data/FAP_XXXXXXXXXXXXXXXXX_20240804_132559_23.0.1.zip").unwrap();
-        assert_eq!(val.results_header.vehicle.ident.vin, "XXXXXXXXXXXXXXXXX");
-        assert_eq!(val.result.header.equipment.pt2g_version, "42.200.010");
-        assert_eq!(val.result.header.timezone, FixedOffset::west_opt(7 * 3600).unwrap());
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ReadSrv {
+    #[serde(rename = "@WriteServiceID")]
+    pub wrt_srv_id: String,    
+    #[serde(rename = "@WriteLocalID")]
+    pub wrt_local_id: String,    
+    #[serde(rename = "$text")]
+    value: String,    
+}
 
-        let section = &val.get_section_by_title("Gateway (A7.1)").unwrap();
-        let m = &section.get_measurement_by_title(&"Control unit, coding".to_string()).unwrap();
-        let value = m.get_value_by_label(&"Batteriewechsel_Technologie_zwei.Scannercode".to_string()).unwrap();
-        assert_eq!(m.get_title(), "Control unit, coding");
-        assert_eq!(value, &ValueEnum::Alpha(AlphaValue {
-            text: "Battery change: Scanner code".to_string(),
-            label: "Batteriewechsel_Technologie_zwei.Scannercode".to_string(),
-            value: Some("205 BA24H9F0EGE".to_string()),
-        }));
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct NegResponses {
+    #[serde(rename = "NegativeResponse")]
+    pub respones: NegResponse, 
+}
 
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct NegResponse {
+    #[serde(rename = "@ResponseCode")]
+    pub code: String,
+    #[serde(rename = "$text")]
+    pub value: String,
+}
 
-        let section = &val.get_section_by_title("Airbag (variant: A2.8)").unwrap();
-        let m = &section.get_measurement_by_title(&"Fault".to_string()).unwrap();
-        let submeasurement = m.get_submeasurement_by_title(&"erweiterter Fehlerspeicher".to_string()).unwrap();
-        let value = submeasurement.get_value_by_label(&"Priority".to_string()).unwrap();
-        assert_eq!(m.get_title(), "Fault");
-        assert_eq!(value, &ValueEnum::Alpha(AlphaValue {
-            text: "Hinweis_Prio".to_string(),
-            label: "Priority".to_string(),
-            value: Some("2".to_string()),
-        }));
-    }
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct VehicleProtection {
+    #[serde(rename="$value")]
+    pub veh_prot: Vec<VehicleProtectionOps>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub enum VehicleProtectionOps {
+    CalcIVD(ProtectionRequest),
+    ReadSlaveListConfigHash(ProtectionRequest),
+    readSFD_ARS(ProtectionRequest),
+    StartSFD_E2E(ProtectionRequest),
+    EndSFD_E2E(ProtectionRequest),
+    StatusSFD(ProtectionRequest),
+    ModeOfProtection(ProtectionRequest),
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtectionRequest {
+    #[serde(rename = "@name")]
+    pub name: String,
+    #[serde(rename = "Request")]
+    pub request: String,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Srv {
+    #[serde(rename = "RawData")]
+    pub raw_data: RawData,
+
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct RawData {
+    #[serde(rename = "@Type")]
+    pub raw_data_type: String,
+    #[serde(rename = "$text")]
+    pub value: String,
+
 }

@@ -2,7 +2,7 @@ use clap::Parser;
 use anyhow::Result;
 use valrs::diff::{diff, DiffArgs};
 use valrs::dump::{dump, DumpArgs};
-use valrs::zdcdump::{zdcdump, ZdcdumpArgs};
+use valrs::zdcdump::{zdcdump, ZdcDumpArgs};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -15,7 +15,7 @@ pub struct Cli {
 enum Commands {
     Diff(DiffArgs),
     Dump(DumpArgs),
-    Zdcdump(ZdcdumpArgs),
+    Zdcdump(ZdcDumpArgs),
 }
 
  fn main() -> Result<()> {
