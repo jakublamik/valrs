@@ -1,5 +1,5 @@
 use anyhow::Result;
-use piwis_zdc::{Transl, InstrLst};
+use piwis_zdc::{HumanTranslations, InstrLst};
 
 #[derive(clap::Args, Debug)]
 pub struct ZdcDumpArgs {

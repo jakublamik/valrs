@@ -24,13 +24,13 @@ pub struct InstrLst {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub enum Instr {
-    ShortNameService(ShortNameSrv),
+    ShortNameService(Service),
     Warten(Wait),
-    HexService(HexSrv),
-    FlashSession(FlashSession),
+    HexService(Service),
+    FlashSession(Service),
     DataSets(DataSets),
     EcuDefinition(EcuDef),
-    Service(Srv),
+
 }
 
 impl InstrLst {
@@ -65,14 +65,7 @@ impl InstrLst {
         }
         return Ok(result);
     }
-/*
-    pub fn get_hex_service_by_phase(&self, phase: &str) -> Option<&HexService> {
-        self.hex_service.iter().find(|s| s.get_phase) == phase)
-    }
 
-    pub fn get_section_by_title(&self, title: &str) -> Option<&Section> {
-        self.hex_service.human_translations.sections.iter().find(|s| s.get_title() == title)
-    } */
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -90,13 +83,15 @@ pub struct DiagAddr {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ShortNameSrv {
+pub struct Service {
     #[serde(rename = "@ID")]
     pub id: String,
     #[serde(rename = "@Phase")]
     pub phase: String,
     #[serde(rename = "@PhaseDetail")]
     pub phase_detail: Option<String>,
+    #[serde(rename = "@did")]
+    pub did: Option<String>,  
     #[serde(rename = "@Mode")]
     pub mode: Option<String>,
     #[serde(rename = "@Bewertung")]
@@ -107,26 +102,12 @@ pub struct ShortNameSrv {
     pub data_sets: Option<DataSets>,
     #[serde(rename = "Request")]
     pub request: Request,
+    #[serde(rename = "ExpectedValue")]
+    pub exp_value: Option<String>,
     #[serde(rename = "Response")]
     pub response: Option<Response>,
     #[serde(rename = "HumanTranslations")]
-    pub transl: Option<Transl>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct FlashSession {
-    #[serde(rename = "@ID")]
-    pub id: String,
-    #[serde(rename = "@Phase")]
-    pub phase: String,
-    #[serde(rename = "Kommentar")]
-    pub comment: Option<Comment>,
-    #[serde(rename = "Request")]
-    pub request: Request,
-    #[serde(rename = "Response")]
-    pub response: Option<Response>,
-
+    pub transl: Option<HumanTranslations>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -135,7 +116,9 @@ pub struct Request {
     #[serde(rename = "@Value")]
     pub value: Option<String>,
     #[serde(rename = "Parameter")]
-    param: Option<Vec<Parameter>>, 
+    param: Option<Vec<Parameter>>,
+    #[serde(rename = "$text")]
+    txt_value: Option<String>,  
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -145,6 +128,8 @@ pub struct Response {
     pub value: Option<String>,
     #[serde(rename = "Parameter")]
     param: Option<Vec<Parameter>>, 
+    #[serde(rename = "$text")]
+    txt_value: Option<String>,  
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -178,34 +163,7 @@ pub struct Wait {
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct HexSrv {
-    #[serde(rename = "@ID")]
-    pub id: String,
-    #[serde(rename = "@Phase")]
-    pub phase: String,
-    #[serde(rename = "@PhaseDetail")]
-    pub phase_detail: Option<String>,
-    #[serde(rename = "@did")]
-    pub did: Option<String>,   
-    #[serde(rename = "@Mode")]
-    pub mode: Option<String>,   
-    #[serde(rename = "@Bewertung")]
-    pub eval: Option<String>,
-    #[serde(rename = "Kommentar")]
-    pub comment: Option<Comment>,
-    #[serde(rename = "Request")]
-    pub req: String,
-    #[serde(rename = "ExpectedValue")]
-    pub exp_value: Option<String>,
-    #[serde(rename = "Response")]
-    pub re: Option<String>,
-    #[serde(rename = "HumanTranslations")]
-    pub transl: Option<Transl>,
-}
-
-#[derive(Deserialize, Serialize, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct Transl {
+pub struct HumanTranslations {
     #[serde(rename = "@ServiceID")]
     pub srv_id: Option<String>,
     #[serde(rename = "@RDIdentifier")]
@@ -213,15 +171,15 @@ pub struct Transl {
     #[serde(rename = "@ServiceName")]
     pub srv_name: Option<String>,
      #[serde(rename = "DatasetTranslation")]
-    pub dataset_transl: Option<Vec<DatasetTransl>>,
+    pub datasets: Option<Vec<DatasetTransalations>>,
     #[serde(rename = "Translation")]
-    pub params: Option<Vec<Params>>,
+    pub params: Option<Vec<ParameterTranslation>>,
 
 }
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct DatasetTransl {
+pub struct DatasetTransalations{
     #[serde(rename = "@RDIdentifier")]
     pub rd_id: String,
     #[serde(rename = "@ServiceName")]
@@ -234,7 +192,7 @@ pub struct DatasetTransl {
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct Params {
+pub struct ParameterTranslation {
     #[serde(rename = "@ParameterName")]
     pub name: String,
     #[serde(rename = "@BytePosition")]
@@ -248,8 +206,6 @@ pub struct Params {
     #[serde(rename = "$text")]
     pub value: String,
 }
-
-
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
@@ -272,7 +228,6 @@ pub struct DataSet {
     #[serde(rename = "Kommentar")]
     pub comment: Option<String>,
 }
-
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
@@ -306,13 +261,12 @@ pub struct EcuDef {
     #[serde(rename = "PostCodingInstructions")]
     pub post: Instructions, 
     #[serde(rename = "NegativeResponses")]
-    pub neg_respones: NegResponses, 
+    pub neg_respones: NegativeResponses, 
     #[serde(rename = "IVD")]
     pub ivd: Vec<VehicleProtection>,
     #[serde(rename = "SFD")]
     pub sfd: Vec<VehicleProtection>,
 }
-
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
@@ -329,7 +283,7 @@ pub struct Instruction {
     #[serde(rename = "@IsWriteInstruction")]
     pub is_wrt_inst: String,
     #[serde(rename = "ShortNameService")]
-    pub short_name_srv: Option<InstructionShortNameSrv>,
+    pub short_name_srv: Option<InstructionShortNameService>,
     #[serde(rename = "HexService")]
     pub hex_srv: Option<String>,
     #[serde(rename = "Wait")]
@@ -338,7 +292,7 @@ pub struct Instruction {
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct InstructionShortNameSrv {
+pub struct InstructionShortNameService {
     #[serde(rename = "@ShortName")]
     pub short_name: String,
     #[serde(rename = "Parameters")]
@@ -376,9 +330,9 @@ pub struct Coding {
     #[serde(rename = "FlashJob")]
     pub flash_job: Option<FlashJob>,
     #[serde(rename = "FlashService")]
-    pub flash_srv: Option<FlashSrv>,
+    pub flash_srv: Option<FlashService>,
     #[serde(rename = "ReadServices")]
-    pub read_srvs: ReadSrvs
+    pub read_srvs: ReadServices,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -387,20 +341,7 @@ pub struct PostModeInstructions {
     #[serde(rename = "PostModeInstruction")]
     pub instr: Vec<Instruction>,
 }
-/*
-#[derive(Deserialize, Serialize, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct PostModeInstruction {
-    #[serde(rename = "@Mode")]
-    pub mode: String,
-    #[serde(rename = "@IsWriteInstruction")]
-    pub is_wrt_inst: String,
-    #[serde(rename = "ShortNameService")]
-    pub short_name_srv: Option<InstructionShortNameSrv>,
-    #[serde(rename = "Wait")]
-    pub wait: Option<String>,
-}
- */
+
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct FlashJob {
@@ -415,21 +356,12 @@ pub struct FlashJob {
     #[serde(rename = "Responses")]
     pub responses: CodingResponses,
     #[serde(rename = "ReadService")]
-    pub read: FlashJobRe,
+    pub read: ReadService,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct FlashJobRe {
-    #[serde(rename = "@ShortName")]
-    pub short_name: String,
-    #[serde(rename = "Parameters")]
-    pub params: Option<String>,
-}
-
-#[derive(Deserialize, Serialize, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct FlashSrv {
+pub struct FlashService {
     #[serde(rename = "@ShortName")]
     pub short_name: String,
     #[serde(rename = "@ParameterNameData")]
@@ -443,7 +375,7 @@ pub struct FlashSrv {
     #[serde(rename = "@ParameterNameKodiercontainerVersion")]
     pub param_name_container_ver: String,
     #[serde(rename = "Responses")]
-    pub re: CodingResponses,    
+    pub responses: CodingResponses,    
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -466,32 +398,36 @@ pub struct CodingResponse {
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct ReadSrvs {
+pub struct ReadServices {
     #[serde(rename = "ReadService")]
-    pub read_service: ReadSrv,    
+    pub read_service: ReadService,    
 }
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct ReadSrv {
+pub struct ReadService {
+    #[serde(rename = "@ShortName")]
+    pub short_name: Option<String>,
+    #[serde(rename = "Parameters")]
+    pub params: Option<String>,
     #[serde(rename = "@WriteServiceID")]
-    pub wrt_srv_id: String,    
+    pub wrt_srv_id: Option<String>,    
     #[serde(rename = "@WriteLocalID")]
-    pub wrt_local_id: String,    
+    pub wrt_local_id: Option<String>,    
     #[serde(rename = "$text")]
-    value: String,    
+    value: Option<String>,    
 }
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct NegResponses {
+pub struct NegativeResponses {
     #[serde(rename = "NegativeResponse")]
-    pub respones: NegResponse, 
+    pub respones: NegativeResponse, 
 }
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct NegResponse {
+pub struct NegativeResponse {
     #[serde(rename = "@ResponseCode")]
     pub code: String,
     #[serde(rename = "$text")]
@@ -525,7 +461,7 @@ pub struct ProtectionRequest {
     #[serde(rename = "Request")]
     pub request: String,
 }
-
+/*
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Srv {
@@ -543,3 +479,5 @@ pub struct RawData {
     pub value: String,
 
 }
+
+     */
