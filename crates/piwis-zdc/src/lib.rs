@@ -51,7 +51,7 @@ impl InstrLst {
 
             if let Some(file_name) = file_path.file_name().and_then(|n| n.to_str()) {
 //                if file_path.extension().and_then(|ext| ext.to_str()) == Some("xml") {
-                if file_name.contains("IExIL") && file_path.extension().and_then(|ext| ext.to_str()) == Some("xml") {
+                if file_name.contains("IL") && file_path.extension().and_then(|ext| ext.to_str()) == Some("xml") {
                     println!("Processing file: {}", file_name);
 
                     let file = File::open(&file_path)?;
@@ -81,9 +81,9 @@ pub struct DiagAddr {
     #[serde(rename = "@codingOrder")]
     pub coding_order: String,
     #[serde(rename = "@IVD")]
-    pub ivd: String,
+    pub ivd: Option<String>,
     #[serde(rename = "@SFD")]
-    pub sfd: String,
+    pub sfd: Option<String>,
     #[serde(rename = "$text")]
     pub value: String,
 }
@@ -102,7 +102,7 @@ pub struct ShortNameSrv {
     #[serde(rename = "@Bewertung")]
     pub eval: Option<String>,
     #[serde(rename = "Kommentar")]
-    pub comment: Comment,
+    pub comment: Option<Comment>,
     #[serde(rename = "DataSets")]
     pub data_sets: Option<DataSets>,
     #[serde(rename = "Request")]
@@ -121,7 +121,7 @@ pub struct FlashSession {
     #[serde(rename = "@Phase")]
     pub phase: String,
     #[serde(rename = "Kommentar")]
-    pub comment: Comment,
+    pub comment: Option<Comment>,
     #[serde(rename = "Request")]
     pub request: Request,
     #[serde(rename = "Response")]
@@ -190,9 +190,9 @@ pub struct HexSrv {
     #[serde(rename = "@Mode")]
     pub mode: Option<String>,   
     #[serde(rename = "@Bewertung")]
-    pub eval: String,
+    pub eval: Option<String>,
     #[serde(rename = "Kommentar")]
-    pub comment: Comment,
+    pub comment: Option<Comment>,
     #[serde(rename = "Request")]
     pub req: String,
     #[serde(rename = "ExpectedValue")]
@@ -200,7 +200,7 @@ pub struct HexSrv {
     #[serde(rename = "Response")]
     pub re: Option<String>,
     #[serde(rename = "HumanTranslations")]
-    pub transl: Transl,
+    pub transl: Option<Transl>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
