@@ -2,7 +2,7 @@ use std::fs::{self, File};
 use std::io::BufReader;
 use std::path::Path;
 use anyhow::Context;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -33,7 +33,7 @@ impl Zdc {
             let file_path = entry.path();
             if let Some(file_name) = file_path.file_name().and_then(|n| n.to_str()) {
                 if file_name.contains("IL") && file_path.extension().and_then(|ext| ext.to_str()) == Some("xml") {
-                    println!("Processing file: {}", file_name);
+                    println!("Deserializing: {}", file_name);
                     let file = File::open(&file_path)?;
                     let reader = BufReader::new(file);
                     let instr_lst = &mut quick_xml::de::Deserializer::from_reader(reader);
@@ -44,15 +44,6 @@ impl Zdc {
         }
         return Ok(result);
     }
-/*
-    fn get_(value: &ZdcInstr){
-        match value {
-            tonsTypes::TotalSum(value) => print_type_of(value),
-            tonsTypes::Batches(value) => print_type_of(value),
-        }
-    }
-   */  
-
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -83,17 +74,6 @@ impl Instr {
             _ => None,
         }
     }
-/*
-    pub fn get_human_transl(&self) -> Option<&Vec<ValueEnum>> {
-        match self {
-            Instr::Codierung(m) => m.values.as_ref(),
-            Instr::Identifikation(m) => m.values.as_ref(),
-            Instr::Fehler(m) => m.values.as_ref(),
-            Instr::Messwerte(m) => m.values.as_ref(),
-            Instr::ErweiterterFehlerspeicher(m) => m.values.as_ref(),
-        }
-    } 
-    */
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -137,9 +117,6 @@ pub struct Service {
     #[serde(rename = "HumanTranslations")]
     pub transl: Option<HumanTranslations>,
 }
-
-
-
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -209,7 +186,10 @@ pub struct HumanTranslations {
 }
 impl HumanTranslations {
     pub fn get_params(&self) -> Option<&Vec<ParameterTranslation>> {
-            self.params.as_ref()
+        self.params.as_ref()
+    }
+    pub fn get_srv_name(&self) -> Option<String> {
+        self.srv_name.clone()
     }
 }
 
@@ -498,7 +478,8 @@ pub struct ProtectionRequest {
     #[serde(rename = "Request")]
     pub request: String,
 }
-/*
+
+#[allow(dead_code)]
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Srv {
@@ -517,4 +498,3 @@ pub struct RawData {
 
 }
 
-     */
