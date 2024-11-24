@@ -6,7 +6,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct InstrLst {
+pub struct Zdc {
     #[serde(rename = "@xmlns")]
     pub xmlns: String,
     #[serde(rename = "@ZDCFile")]
@@ -21,6 +21,40 @@ pub struct InstrLst {
     pub lst: Vec<Instr>,
 }
 
+impl Zdc {
+    pub fn from_dir(directory: &str) -> anyhow::Result<Vec<Zdc>> {
+        let path = Path::new(directory);
+        if !path.is_dir() {
+            return Err(anyhow::anyhow!("Provided path is not a directory."));
+        }
+        let mut result = Vec::new();
+        for entry in fs::read_dir(path)? {         
+            let entry = entry?;
+            let file_path = entry.path();
+            if let Some(file_name) = file_path.file_name().and_then(|n| n.to_str()) {
+                if file_name.contains("IL") && file_path.extension().and_then(|ext| ext.to_str()) == Some("xml") {
+                    println!("Processing file: {}", file_name);
+                    let file = File::open(&file_path)?;
+                    let reader = BufReader::new(file);
+                    let instr_lst = &mut quick_xml::de::Deserializer::from_reader(reader);
+                    let deserialized: Zdc = serde_path_to_error::deserialize(instr_lst).context("Failed deserializing")?;
+                    result.push(deserialized);
+                }
+            }
+        }
+        return Ok(result);
+    }
+/*
+    fn get_(value: &ZdcInstr){
+        match value {
+            tonsTypes::TotalSum(value) => print_type_of(value),
+            tonsTypes::Batches(value) => print_type_of(value),
+        }
+    }
+   */  
+
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub enum Instr {
@@ -32,40 +66,34 @@ pub enum Instr {
     EcuDefinition(EcuDef),
 
 }
-
-impl InstrLst {
-    pub fn from_dir(directory: &str) -> anyhow::Result<Vec<InstrLst>> {
-        let path = Path::new(directory);
-        if !path.is_dir() {
-            return Err(anyhow::anyhow!("Provided path is not a directory."));
+impl Instr {
+    pub fn get_transl(&self) -> Option<&HumanTranslations> {
+        match self {
+            Instr::ShortNameService(instr) => instr.transl.as_ref(),
+            Instr::HexService(instr) => instr.transl.as_ref(),
+            Instr::FlashSession(instr) => instr.transl.as_ref(),
+            _ => None,
         }
-        
-        let mut result = Vec::new();
-
-        for entry in fs::read_dir(path)? {
-            
-            
-            let entry = entry?;
-            let file_path = entry.path();
-            
-
-            if let Some(file_name) = file_path.file_name().and_then(|n| n.to_str()) {
-//                if file_path.extension().and_then(|ext| ext.to_str()) == Some("xml") {
-                if file_name.contains("IL") && file_path.extension().and_then(|ext| ext.to_str()) == Some("xml") {
-                    println!("Processing file: {}", file_name);
-
-                    let file = File::open(&file_path)?;
-                    let reader = BufReader::new(file);
-                    let instr_lst = &mut quick_xml::de::Deserializer::from_reader(reader);
-
-                    let deserialized: InstrLst = serde_path_to_error::deserialize(instr_lst).context("Failed deserializing")?;
-                    result.push(deserialized);
-                }
-            }
-        }
-        return Ok(result);
     }
-
+    pub fn get_phase(&self) -> Option<&String> {
+        match self {
+            Instr::ShortNameService(instr) => Some(&instr.phase),
+            Instr::HexService(instr) => Some(&instr.phase),
+            Instr::FlashSession(instr) => Some(&instr.phase),
+            _ => None,
+        }
+    }
+/*
+    pub fn get_human_transl(&self) -> Option<&Vec<ValueEnum>> {
+        match self {
+            Instr::Codierung(m) => m.values.as_ref(),
+            Instr::Identifikation(m) => m.values.as_ref(),
+            Instr::Fehler(m) => m.values.as_ref(),
+            Instr::Messwerte(m) => m.values.as_ref(),
+            Instr::ErweiterterFehlerspeicher(m) => m.values.as_ref(),
+        }
+    } 
+    */
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -110,13 +138,16 @@ pub struct Service {
     pub transl: Option<HumanTranslations>,
 }
 
+
+
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
     #[serde(rename = "@Value")]
     pub value: Option<String>,
     #[serde(rename = "Parameter")]
-    param: Option<Vec<Parameter>>,
+    params: Option<Vec<Parameter>>,
     #[serde(rename = "$text")]
     txt_value: Option<String>,  
 }
@@ -176,19 +207,12 @@ pub struct HumanTranslations {
     pub params: Option<Vec<ParameterTranslation>>,
 
 }
-
-#[derive(Deserialize, Serialize, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct DatasetTransalations{
-    #[serde(rename = "@RDIdentifier")]
-    pub rd_id: String,
-    #[serde(rename = "@ServiceName")]
-    pub srv_name: String,
-    #[serde(rename = "@HexValue")]
-    pub hex_value: String,
-    #[serde(rename = "$text")]
-    pub value: String,
+impl HumanTranslations {
+    pub fn get_params(&self) -> Option<&Vec<ParameterTranslation>> {
+            self.params.as_ref()
+    }
 }
+
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
@@ -201,6 +225,19 @@ pub struct ParameterTranslation {
     pub lsb: String,
     #[serde(rename = "@BitLength")]
     pub bit_len: String,
+    #[serde(rename = "@HexValue")]
+    pub hex_value: String,
+    #[serde(rename = "$text")]
+    pub value: String,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DatasetTransalations{
+    #[serde(rename = "@RDIdentifier")]
+    pub rd_id: String,
+    #[serde(rename = "@ServiceName")]
+    pub srv_name: String,
     #[serde(rename = "@HexValue")]
     pub hex_value: String,
     #[serde(rename = "$text")]
@@ -312,13 +349,6 @@ pub struct PrePostParam {
     #[serde(rename = "@ShortName")]
     pub short_name: String,
     #[serde(rename = "ZDCValue")]
-    pub zdc_value: ZdcValue,
-}
-
-#[derive(Deserialize, Serialize, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct ZdcValue {
-    #[serde(rename = "$text")]
     pub value: String,
 }
 
@@ -444,12 +474,19 @@ pub struct VehicleProtection {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub enum VehicleProtectionOps {
-    CalcIVD(ProtectionRequest),
+    #[serde(rename="CalcIVD")]
+    CalcIvd(ProtectionRequest),
+    #[serde(rename="ReadSlaveListConfigHash")]
     ReadSlaveListConfigHash(ProtectionRequest),
-    readSFD_ARS(ProtectionRequest),
-    StartSFD_E2E(ProtectionRequest),
-    EndSFD_E2E(ProtectionRequest),
-    StatusSFD(ProtectionRequest),
+    #[serde(rename="readSFD_ARS")]
+    ReadSfdArs(ProtectionRequest),
+    #[serde(rename="StartSFD_E2E")]
+    StartSfdE2e(ProtectionRequest),
+    #[serde(rename="EndSFD_E2E")]
+    EndSdfE2e(ProtectionRequest),
+    #[serde(rename="StatusSFD")]
+    StatusSfd(ProtectionRequest),
+    #[serde(rename="ModeOfProtection")]
     ModeOfProtection(ProtectionRequest),
 }
 

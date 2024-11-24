@@ -1,5 +1,7 @@
 use anyhow::Result;
-use piwis_zdc::{HumanTranslations, InstrLst};
+use piwis_zdc::{HumanTranslations, Zdc, Instr};
+use piwis_val::{Measurement, ValueEnum, VehicleAnalysisLog};
+
 
 #[derive(clap::Args, Debug)]
 pub struct ZdcDumpArgs {
@@ -15,32 +17,43 @@ fn print_translation(p0: &mut Vec<String>, m: &Translation) {
         }
     }
 }*/
-/*
-fn print_transl_params(p0: &mut Vec<String>, t: &Vec<Transl>) {
+
+fn print_transl_params(p0: &mut Vec<String>, t: &Vec<HumanTranslations>) {
     for translation in t {
-        p0.push(translation.parameter_name.clone());
-        println!("{}: {}", p0.join(" >> "), translation.value);
-        p0.pop();
+       // p0.push(translation.params.clone());
+     //   println!("{}: {}", p0.join(" >> "), translation.txt_value);
+       // p0.pop();
     }
 }
- */
+
 pub fn zdcdump(args: &ZdcDumpArgs) -> Result<()> {
-    let instr = &InstrLst::from_dir(&args.dir)?;
     
-    /*  let mut p0 = vec![];
+    let zdc = &Zdc::from_dir(&args.dir)?;
+    
+    let mut p0 = vec![];
+
+    for instr in zdc.iter() {
+
+        p0.push(instr.zdc_file.clone());
+        p0.push(instr.diag_addr.value.clone());
+        //println!("{}", p0.join(" >> "));
   
-    p0.push(instr.lst.zdc_file.clone());
-    p0.push(instr.lst.diag_addr.value.clone());
-    for hex_srv in instr.lst.lst.hex_srv.iter() {
-        p0.push(hex_srv.phase.clone());
-        println!("{}", p0.join(" >> "));
-        //p0.push(hex_srv.transl.srv_name.clone());
-        //print_transl_params(&mut p0, &hex_srv.transl.params);
-        //p0.pop();
+        for srv in instr.lst.iter() {
+            if let Some(transl) = srv.get_transl() {
+                if let Some(params) = transl.get_params() {
+                    for param in params.iter() {
+                        p0.push(param.name.clone());
+                        p0.push(param.value.clone());
+                        println!("{}", p0.join(" >> "));
+                        p0.pop();
+                        p0.pop();   
+                    }
+                }
+             }
+        } 
+        p0.pop();
         p0.pop();
     }
-    p0.pop();
-    p0.pop();
-{*/
     Ok(())
 }
+
