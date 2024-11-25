@@ -51,8 +51,8 @@ impl Zdc {
     pub fn compare_parameters(&self) {
         let mut printed_diag_addr = false;
 
-        // Map to track `ParameterTranslation` by name
-        let mut parameter_map: HashMap<String, HashMap<String, Vec<(String, String)>>> = HashMap::new();
+        // Map to track each combination of `srv_name`, `name`, and `value`
+        let mut parameter_map: HashMap<(String, String), HashMap<String, Vec<String>>> = HashMap::new();
 
         // Process each instruction
         for instr in &self.lst {
@@ -61,12 +61,13 @@ impl Zdc {
                     if let Some(params) = &translations.params {
                         let srv_name = translations.srv_name.clone().unwrap_or_else(|| "Unknown".to_string());
                         for param in params {
+                            // Create a unique key based on srv_name and name
                             parameter_map
-                                .entry(param.name.clone())
+                                .entry((srv_name.clone(), param.name.clone()))
                                 .or_insert_with(HashMap::new)
                                 .entry(param.value.clone())
                                 .or_insert_with(Vec::new)
-                                .push((srv_name.clone(), service.phase.clone()));
+                                .push(service.phase.clone());
                         }
                     }
                 }
@@ -74,7 +75,7 @@ impl Zdc {
         }
 
         // Analyze and classify results
-        for (name, value_map) in parameter_map {
+        for ((srv_name, name), value_map) in parameter_map {
             if !printed_diag_addr {
                 // Print diag_addr only if there's a valid output
                 println!(
@@ -86,6 +87,13 @@ impl Zdc {
             }
 
             let unique_values: Vec<_> = value_map.keys().collect();
+
+            // Collect all phases across values for consistency in formatting
+            let mut all_phases = vec![];
+            for phases in value_map.values() {
+                all_phases.extend(phases.iter().cloned());
+            }
+
             match unique_values.len() {
                 1 => {
                     // Only one unique value
@@ -93,21 +101,17 @@ impl Zdc {
                     let srv_names_phases = &value_map[value];
                     if srv_names_phases.len() > 1 {
                         println!(
-                            "[MATCHING] [{}] >> {} >> {} : {}",
-                            srv_names_phases
-                                .iter()
-                                .map(|(_, phase)| phase.clone())  // Clone the phase to own it
-                                .collect::<Vec<_>>()
-                                .join(", "),  // Join now works with owned Strings
-                            srv_names_phases[0].0, // srv_name
+                            "[MATCHING] [{}] >> {} >> {}: {}",
+                            all_phases.join(", "),
+                            srv_name,
                             name,
                             value
                         );
                     } else {
                         println!(
-                            "[NEW] [{}] >> {} >> {} : {}",
-                            srv_names_phases[0].1,
-                            srv_names_phases[0].0, // srv_name
+                            "[NEW] [{}] >> {} >> {}: {}",
+                            srv_names_phases[0], // Phase
+                            srv_name,
                             name,
                             value
                         );
@@ -117,23 +121,13 @@ impl Zdc {
                     // Multiple unique values exist
                     let all_values = unique_values
                         .iter()
-                        .map(|v| v.to_string()) // Ensure all values are owned Strings
+                        .map(|v| v.to_string())
                         .collect::<Vec<_>>()
                         .join(" <-> ");
-                    let mut all_phases: Vec<_> = value_map
-                        .values()
-                        .flat_map(|phases| phases.iter().map(|(_, phase)| phase.clone()))
-                        .collect();
-                    all_phases.sort();
-                    all_phases.dedup(); // Remove duplicate phases
-
-                    // Include srv_name in DIFFERENT case as well
-                    let srv_name = value_map.values().next().unwrap()[0].0.clone();
-
                     println!(
-                        "[DIFFERENT] [{}] >> {} >> {} : {}",
-                        all_phases.join(", "),  // Join with owned Strings
-                        srv_name,  // srv_name in DIFFERENT case
+                        "[DIFFERENT] [{}] >> {} >> {}: {}",
+                        all_phases.join(", "),
+                        srv_name,
                         name,
                         all_values
                     );
