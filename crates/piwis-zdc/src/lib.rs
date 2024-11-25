@@ -77,7 +77,11 @@ impl Zdc {
         for (name, value_map) in parameter_map {
             if !printed_diag_addr {
                 // Print diag_addr only if there's a valid output
-                println!("Processing Zdc with diag_addr: {}", self.diag_addr.value);
+                println!(
+                    "Diagnosis Address : {} ZDC File: {}",
+                    self.diag_addr.value,
+                    self.zdc_file
+                );
                 printed_diag_addr = true;
             }
 
@@ -89,19 +93,23 @@ impl Zdc {
                     let srv_names_phases = &value_map[value];
                     if srv_names_phases.len() > 1 {
                         println!(
-                            "[MATCHING] Service: {}, Name: {}, Value: {}, Phases: {:?}",
+                            "[MATCHING] [{}] >> {} >> {} : {}",
+                            srv_names_phases
+                                .iter()
+                                .map(|(_, phase)| phase.clone())  // Clone the phase to own it
+                                .collect::<Vec<_>>()
+                                .join(", "),  // Join now works with owned Strings
                             srv_names_phases[0].0, // srv_name
                             name,
-                            value,
-                            srv_names_phases.iter().map(|(_, phase)| phase).collect::<Vec<_>>()
+                            value
                         );
                     } else {
                         println!(
-                            "[NEW] Service: {}, Name: {}, Value: {}, Phase: {:?}",
+                            "[NEW] [{}] >> {} >> {} : {}",
+                            srv_names_phases[0].1,
                             srv_names_phases[0].0, // srv_name
                             name,
-                            value,
-                            srv_names_phases[0].1
+                            value
                         );
                     }
                 }
@@ -109,16 +117,25 @@ impl Zdc {
                     // Multiple unique values exist
                     let all_values = unique_values
                         .iter()
-                        .map(|v| v.to_string())
+                        .map(|v| v.to_string()) // Ensure all values are owned Strings
                         .collect::<Vec<_>>()
                         .join(" <-> ");
-                    let mut all_phases = vec![];
-                    for phases in value_map.values() {
-                        all_phases.extend(phases.iter().map(|(_, phase)| phase.clone()));
-                    }
+                    let mut all_phases: Vec<_> = value_map
+                        .values()
+                        .flat_map(|phases| phases.iter().map(|(_, phase)| phase.clone()))
+                        .collect();
+                    all_phases.sort();
+                    all_phases.dedup(); // Remove duplicate phases
+
+                    // Include srv_name in DIFFERENT case as well
+                    let srv_name = value_map.values().next().unwrap()[0].0.clone();
+
                     println!(
-                        "[DIFFERENT] Name: {}, Values: {}, Phases: {:?}",
-                        name, all_values, all_phases
+                        "[DIFFERENT] [{}] >> {} >> {} : {}",
+                        all_phases.join(", "),  // Join with owned Strings
+                        srv_name,  // srv_name in DIFFERENT case
+                        name,
+                        all_values
                     );
                 }
             }
