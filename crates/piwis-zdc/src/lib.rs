@@ -47,24 +47,26 @@ impl Zdc {
     }
 
     
+    /// Compares `ParameterTranslation.value` by `ParameterTranslation.name` in the given Zdc.
     pub fn compare_parameters(&self) {
-        println!("Processing Zdc with diag_addr: {}", self.diag_addr.value);
+        let mut printed_diag_addr = false;
 
         // Map to track `ParameterTranslation` by name
-        let mut parameter_map: HashMap<String, HashMap<String, Vec<String>>> = HashMap::new();
+        let mut parameter_map: HashMap<String, HashMap<String, Vec<(String, String)>>> = HashMap::new();
 
         // Process each instruction
         for instr in &self.lst {
             if let Some(service) = Self::extract_service(instr) {
                 if let Some(translations) = &service.transl {
                     if let Some(params) = &translations.params {
+                        let srv_name = translations.srv_name.clone().unwrap_or_else(|| "Unknown".to_string());
                         for param in params {
                             parameter_map
                                 .entry(param.name.clone())
                                 .or_insert_with(HashMap::new)
                                 .entry(param.value.clone())
                                 .or_insert_with(Vec::new)
-                                .push(service.phase.clone());
+                                .push((srv_name.clone(), service.phase.clone()));
                         }
                     }
                 }
@@ -73,34 +75,43 @@ impl Zdc {
 
         // Analyze and classify results
         for (name, value_map) in parameter_map {
+            if !printed_diag_addr {
+                // Print diag_addr only if there's a valid output
+                println!("Processing Zdc with diag_addr: {}", self.diag_addr.value);
+                printed_diag_addr = true;
+            }
+
             let unique_values: Vec<_> = value_map.keys().collect();
             match unique_values.len() {
                 1 => {
                     // Only one unique value
                     let value = unique_values[0];
-                    let phases = &value_map[value];
-                    if phases.len() > 1 {
+                    let srv_names_phases = &value_map[value];
+                    if srv_names_phases.len() > 1 {
                         println!(
-                            "[MATCHING] Name: {}, Value: {}, Phases: {:?}",
-                            name, value, phases
+                            "[MATCHING] Service: {}, Name: {}, Value: {}, Phases: {:?}",
+                            srv_names_phases[0].0, name, value, srv_names_phases.iter().map(|(_, phase)| phase).collect::<Vec<_>>()
                         );
                     } else {
                         println!(
-                            "[NEW] Name: {}, Value: {}, Phases: {:?}",
-                            name, value, phases
+                            "[NEW] Service: {}, Name: {}, Value: {}, Phase: {:?}",
+                            srv_names_phases[0].0, name, value, srv_names_phases[0].1
                         );
                     }
                 }
                 _ => {
                     // Multiple unique values exist
-                    let mut all_values = vec![];
+                    let all_values = unique_values
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>()
+                        .join(" <-> ");
                     let mut all_phases = vec![];
-                    for (value, phases) in value_map {
-                        all_values.push(value);
-                        all_phases.extend(phases);
+                    for phases in value_map.values() {
+                        all_phases.extend(phases.iter().map(|(_, phase)| phase.clone()));
                     }
                     println!(
-                        "[DIFFERENT] Name: {}, Values: {:?}, Phases: {:?}",
+                        "[DIFFERENT] Name: {}, Values: {}, Phases: {:?}",
                         name, all_values, all_phases
                     );
                 }
@@ -117,7 +128,6 @@ impl Zdc {
             _ => None, // Other types of Instr do not contain a Service
         }
     }
-    
 }
 
 #[derive(Debug, Deserialize, Serialize)]
