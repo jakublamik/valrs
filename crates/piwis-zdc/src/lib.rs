@@ -23,6 +23,7 @@ pub struct Zdc {
 }
 
 impl Zdc {
+
     pub fn from_dir(directory: &str) -> anyhow::Result<Vec<Zdc>> {
         let path = Path::new(directory);
         if !path.is_dir() {
@@ -46,7 +47,6 @@ impl Zdc {
         return Ok(result);
     }
 
-    
     /// Compares `ParameterTranslation.value` by `ParameterTranslation.name` in the given Zdc.
     pub fn compare_parameters(&self) {
         let mut printed_diag_addr = false;
@@ -90,12 +90,18 @@ impl Zdc {
                     if srv_names_phases.len() > 1 {
                         println!(
                             "[MATCHING] Service: {}, Name: {}, Value: {}, Phases: {:?}",
-                            srv_names_phases[0].0, name, value, srv_names_phases.iter().map(|(_, phase)| phase).collect::<Vec<_>>()
+                            srv_names_phases[0].0, // srv_name
+                            name,
+                            value,
+                            srv_names_phases.iter().map(|(_, phase)| phase).collect::<Vec<_>>()
                         );
                     } else {
                         println!(
                             "[NEW] Service: {}, Name: {}, Value: {}, Phase: {:?}",
-                            srv_names_phases[0].0, name, value, srv_names_phases[0].1
+                            srv_names_phases[0].0, // srv_name
+                            name,
+                            value,
+                            srv_names_phases[0].1
                         );
                     }
                 }
