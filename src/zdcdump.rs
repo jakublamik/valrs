@@ -222,7 +222,7 @@ pub fn zdcdump(args: &ZdcDumpArgs) -> Result<()> {
                     let srv_names_phases = &value_map[value];
                     if srv_names_phases.len() > 1 {
                         println!(
-                            "[ZDC MATCH] [{}] >> {}.{}: {}",
+                            "[ZDC-MATCH] [{}] >> {}.{}: {}",
                             all_phases.join(", "),
                             srv_name,
                             name,
@@ -230,7 +230,7 @@ pub fn zdcdump(args: &ZdcDumpArgs) -> Result<()> {
                         );
                     } else {
                         println!(
-                            "[ZDC SINGLE] [{}] >> {}.{}: {}",
+                            "[ZDC-SINGLE] [{}] >> {}.{}: {}",
                             srv_names_phases[0], // Phase
                             srv_name,
                             name,
@@ -246,7 +246,7 @@ pub fn zdcdump(args: &ZdcDumpArgs) -> Result<()> {
                         .collect::<Vec<_>>()
                         .join(" <-> ");
                     println!(
-                        "[ZDC CHANGE] [{}] >> {}.{}: {}",
+                        "[ZDC-DIFF] [{}] >> {}.{}: {}",
                         all_phases.join(", "),
                         srv_name,
                         name,
@@ -326,7 +326,7 @@ pub fn compare_target_with_zdc_parameters(
     if zdc_values.iter().all(|value| value == target_value) && zdc_values.len() > 0 {
         // All values match the target
         println!(
-            "[ZDC/VAL MATCH] [{}] >> {}: {}",
+            "[ZDC-VAL-MATCH] [{}] >> {}: {}",
             phases.join(", "),
             target_name,
             target_value
@@ -335,7 +335,7 @@ pub fn compare_target_with_zdc_parameters(
         // At least one value differs
         let zdc_value_str = zdc_values.join(" <-> ");
         println!(
-            "[ZDC/VAL DIFF] [{}] >> {}: {} <=> {}",
+            "[ZDC-VAL-DIFF] [{}] >> {}: {} <=> {}",
             phases.join(", "),
             target_name,
             zdc_value_str,
@@ -359,14 +359,24 @@ pub fn compare_parameters_with_target_in_all_zdcs(
     }
 
     for (diag_addr, zdcs) in zdc_groups {
+        
+        // Deduplicate zdc_files
+        let unique_files: Vec<_> = zdcs
+            .iter()
+            .map(|z| &z.zdc_file)
+            .collect::<std::collections::HashSet<_>>() // Use a HashSet to deduplicate
+            .into_iter()
+            .collect();
+
+        // Print diag_addr and deduplicated zdc_files
         println!(
-            "Diagnosis Address : {} >> ZDC Files: {}",
+            "Diagnosis Address: {} >> ZDC: {}",
             diag_addr,
-            zdcs.iter()
-                .map(|z| &z.zdc_file)
-                .map(String::as_str)
+            unique_files
+                .iter()
+                .map(|s| s.as_str()) 
                 .collect::<Vec<_>>()
-                .join(", ")
+                .join(",")
         );
 
         let mut parameter_map: HashMap<(String, String), HashMap<String, Vec<String>>> = HashMap::new();
@@ -411,25 +421,16 @@ pub fn compare_parameters_with_target_in_all_zdcs(
                         let value = unique_values[0];
                         if value_map[value].len() > 1 {
                             println!(
-                                "[ZDC MATCH] [{}] >> {}.{}: {}, {}",
+                                "[ZDC-MATCH] [{}] >> {}.{}: {}, {}",
                                 all_phases.join(", "),
                                 srv_name,
                                 name,
-                                unique_values
-                                    .iter() // Use `iter` to avoid moving `unique_values`
-                                    .map(|v| v.as_str())
-                                    .collect::<Vec<_>>()
-                                    .join(", "),
-                                    unique_values
-                                    .iter() // Use `iter` to avoid moving `unique_values`
-                                    .map(|v| v.as_str())
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-
+                                value,
+                                value           // Probably not needed given it's match
                             );
                         } else {
                             println!(
-                                "[ZDC SINGLE] [{}] >> {}.{}: {}",
+                                "[ZDC-SINGLE] [{}] >> {}.{}: {}",
                                 all_phases.join(", "),
                                 srv_name,
                                 name,
@@ -444,11 +445,10 @@ pub fn compare_parameters_with_target_in_all_zdcs(
                             .collect::<Vec<_>>()
                             .join(", ");
                         println!(
-                            "[ZDC DIFF] [{}] >> {}.{}: {}, {}",
+                            "[ZDC-DIFF] [{}] >> {}.{}: {}",
                             all_phases.join(", "),
                             srv_name,
                             name,
-                            all_values,
                             all_values
                         );
                     }
@@ -461,17 +461,17 @@ pub fn compare_parameters_with_target_in_all_zdcs(
                         .join(", ");
                     if unique_values.len() == 1 && unique_values[0] == target_val {
                         println!(
-                            "[ZDC/VAL MATCH] [{}, VAL] >> {}.{}: {}, {}, {}",
+                            "[ZDC-VAL-MATCH] [{}, VAL] >> {}.{}: {}, {}, {}",
                             all_phases.join(", "),
                             srv_name,
                             name,
                             all_values,
-                            all_values,
+                            all_values,     //Perhaps not needed given it's a match
                             target_val
                         );
                     } else {
                         println!(
-                            "[ZDC/VAL DIFF] [{}, VAL] >> {}.{}: {}, {}, {}",
+                            "[ZDC-VAL-DIFF] [{}, VAL] >> {}.{}: {}, {}, {}",
                             all_phases.join(", "),
                             srv_name,
                             name,

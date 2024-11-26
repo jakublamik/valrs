@@ -3,7 +3,7 @@ use std::io::BufReader;
 use std::path::Path;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -35,8 +35,7 @@ impl Zdc {
             let entry = entry?;
             let file_path = entry.path();
             if let Some(file_name) = file_path.file_name().and_then(|n| n.to_str()) {
-                if file_name.contains("IL") && file_path.extension().and_then(|ext| ext.to_str()) == Some("xml") {
-                    println!("Deserializing: {}", file_name);
+                if file_name.contains("IL") && file_path.extension().and_then(|ext| ext.to_str()) == Some("xml") {                   
                     let file = File::open(&file_path)?;
                     let reader = BufReader::new(file);
                     let instr_lst = &mut quick_xml::de::Deserializer::from_reader(reader);
