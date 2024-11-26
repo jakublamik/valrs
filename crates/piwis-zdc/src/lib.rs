@@ -24,6 +24,7 @@ pub struct Zdc {
 
 impl Zdc {
 
+    // Read all files in a directory and  deserialize into Zdc
     pub fn from_dir(directory: &str) -> anyhow::Result<Vec<Zdc>> {
         let path = Path::new(directory);
         if !path.is_dir() {
@@ -46,98 +47,31 @@ impl Zdc {
         }
         return Ok(result);
     }
-
-    /// Compares `ParameterTranslation.value` by `ParameterTranslation.name` in the given Zdc.
-    pub fn compare_parameters(&self) {
-        let mut printed_diag_addr = false;
-
-        // Map to track each combination of `srv_name`, `name`, and `value`
-        let mut parameter_map: HashMap<(String, String), HashMap<String, Vec<String>>> = HashMap::new();
-
-        // Process each instruction
-        for instr in &self.lst {
+    
+    /// Finds `ParameterTranslation.value` in a single `Zdc`.
+    pub fn find_parameter_translation_value(&self, target_name: &str) -> Option<String> {
+        self.lst.iter().find_map(|instr| {
             if let Some(service) = Self::extract_service(instr) {
                 if let Some(translations) = &service.transl {
                     if let Some(params) = &translations.params {
                         let srv_name = translations.srv_name.clone().unwrap_or_else(|| "Unknown".to_string());
-                        for param in params {
-                            // Create a unique key based on srv_name and name
-                            parameter_map
-                                .entry((srv_name.clone(), param.name.clone()))
-                                .or_insert_with(HashMap::new)
-                                .entry(param.value.clone())
-                                .or_insert_with(Vec::new)
-                                .push(service.phase.clone());
-                        }
+                        return params.iter().find_map(|param| {
+                            let full_name = format!("{}.{}", srv_name, param.name);
+                            if full_name == target_name {
+                                Some(param.value.clone())
+                            } else {
+                                None
+                            }
+                        });
                     }
                 }
             }
-        }
-
-        // Analyze and classify results
-        for ((srv_name, name), value_map) in parameter_map {
-            if !printed_diag_addr {
-                // Print diag_addr only if there's a valid output
-                println!(
-                    "Diagnosis Address : {} ZDC File: {}",
-                    self.diag_addr.value,
-                    self.zdc_file
-                );
-                printed_diag_addr = true;
-            }
-
-            let unique_values: Vec<_> = value_map.keys().collect();
-
-            // Collect all phases across values for consistency in formatting
-            let mut all_phases = vec![];
-            for phases in value_map.values() {
-                all_phases.extend(phases.iter().cloned());
-            }
-
-            match unique_values.len() {
-                1 => {
-                    // Only one unique value
-                    let value = unique_values[0];
-                    let srv_names_phases = &value_map[value];
-                    if srv_names_phases.len() > 1 {
-                        println!(
-                            "[MATCHING] [{}] >> {} >> {}: {}",
-                            all_phases.join(", "),
-                            srv_name,
-                            name,
-                            value
-                        );
-                    } else {
-                        println!(
-                            "[NEW] [{}] >> {} >> {}: {}",
-                            srv_names_phases[0], // Phase
-                            srv_name,
-                            name,
-                            value
-                        );
-                    }
-                }
-                _ => {
-                    // Multiple unique values exist
-                    let all_values = unique_values
-                        .iter()
-                        .map(|v| v.to_string())
-                        .collect::<Vec<_>>()
-                        .join(" <-> ");
-                    println!(
-                        "[DIFFERENT] [{}] >> {} >> {}: {}",
-                        all_phases.join(", "),
-                        srv_name,
-                        name,
-                        all_values
-                    );
-                }
-            }
-        }
+            None
+        })
     }
 
     /// Extracts the `Service` object from an `Instr` if it contains one.
-    fn extract_service(instr: &Instr) -> Option<&Service> {
+    pub fn extract_service(instr: &Instr) -> Option<&Service> {
         match instr {
             Instr::ShortNameService(service) => Some(service),
             Instr::HexService(service) => Some(service),
@@ -219,18 +153,7 @@ pub struct Service {
     #[serde(rename = "HumanTranslations")]
     pub transl: Option<HumanTranslations>,
 }
-/*
-impl Service {
-    pub fn find_parameter_translation(&self, name: &str) -> Option<&ParameterTranslation> {
-        self.transl
-            .as_ref()? // Check if `transl` exists
-            .params
-            .as_ref()? // Check if `params` exists
-            .iter()
-            .find(|param| param.name == name) // Find the first match
-    }
-}
-*/
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
@@ -305,12 +228,7 @@ impl HumanTranslations {
     pub fn get_srv_name(&self) -> Option<&String> {
         self.srv_name.as_ref()
     }
-   /*
-    pub fn get_param_by_name(&self, name: &str) -> Option<&ParameterTranslation> {
-        self.params.iter().find(|s| s.get_name() == name)
-    } */  
 }
-
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
@@ -342,13 +260,6 @@ impl Clone for ParameterTranslation {
     }
 }
 
-/*
-impl ParameterTranslation {
-    pub fn get_name(&self) -> &String {
-        &self.name
-    }   
-}
- */
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct DatasetTransalations{
@@ -617,7 +528,6 @@ pub struct ProtectionRequest {
     pub request: String,
 }
 
-#[allow(dead_code)]
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Srv {
@@ -633,6 +543,5 @@ pub struct RawData {
     pub raw_data_type: String,
     #[serde(rename = "$text")]
     pub value: String,
-
 }
 

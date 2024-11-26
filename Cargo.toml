@@ -10,12 +10,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+itertools = "0.13"
 anyhow = "1.0.86"
 clap = { version = "4.5.16", features = ["derive"] }
 piwis-val = { path = "crates/piwis-val" }
 piwis-zdc = { path = "crates/piwis-zdc" }
-quick-xml = { version = "0.36.1", features = ["serialize", "encoding"] }
-serde = { version = "1.0.209", features = ["derive"] }
+quick-xml = { version = "0.37.1", features = ["serialize", "encoding"] }
+serde = { version = "1.0.208", features = ["derive"] }
 serde_path_to_error = "0.1.16"
 serde-xml-rs = "0.6.0"
 zip = "2.2.0"
