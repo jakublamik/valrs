@@ -1,165 +1,462 @@
 use anyhow::Result;
 use piwis_val::{Measurement, ValueEnum, VehicleAnalysisLog};
 use piwis_zdc::{HumanTranslations, Zdc, Instr};
+use std::collections::{HashMap, HashSet};
+use itertools::Itertools;
 
 #[derive(clap::Args, Debug)]
-pub struct DiffArgs {
-    zip1: String,
-    zip2: String,
-
-    #[clap(long)]
-    include_values: bool,
-    #[clap(long)]
-    include_identification: bool,
-    #[clap(long)]
-    include_mistakes: bool,
-    #[clap(long)]
-    include_extended_errors: bool,
+pub struct ZdcDiffArgs {
+    dir: String,
+    zip: Option<String>,
     #[clap(long)]
     #[arg(default_value_t = true)]
-    include_coding: bool,
+    include_zdc_file: bool,
+    #[clap(long)]
+    #[arg(default_value_t = true)]
+    include_diag_addr: bool,
+    #[clap(long)]
+    #[arg(default_value_t = true)]
+    include_phase: bool,
+    #[clap(long)]
+    #[arg(default_value_t = true)]
+    include_srv_name: bool,
+    #[clap(long)]
+    #[arg(default_value_t = true)]
+    compare_phases: bool,
 }
 
 #[derive(Debug, Default)]
-pub struct DiffConfig {
-    pub(crate) include_mistakes: bool,
-    pub(crate) include_values: bool,
-    pub(crate) include_identification: bool,
-    pub(crate) include_coding: bool,
-    pub(crate) include_extended_errors: bool,
+pub struct ZdcDiffConfig {
+    pub(crate) include_zdc_file: bool,
+    pub(crate) include_diag_addr: bool,
+    pub(crate) include_phase: bool,
+    pub(crate) include_srv_name: bool,
 }
 
-impl DiffConfig {
-    pub fn new(include_coding: bool, include_mistakes: bool, include_identification: bool, include_values: bool, include_extended_errors: bool) -> DiffConfig {
-        DiffConfig {
-            include_mistakes,
-            include_values,
-            include_identification,
-            include_coding,
-            include_extended_errors,
+impl ZdcDiffConfig {
+    pub fn new(include_zdc_file: bool, include_diag_addr: bool, include_phase: bool, include_srv_name: bool, compare_phases: bool) -> ZdcDiffConfig {
+        ZdcDiffConfig {
+            include_zdc_file,
+            include_diag_addr,
+            include_phase,
+            include_srv_name,
         }
     }
 }
 
 
+fn get_target_value_by_name(diag_addr: &str, target_name: &str) -> Option<String> {
+    // Example: Predefined mapping of diag_addr and target_name to target values
+    let predefined_values: HashMap<(&str, &str), String> = HashMap::from([
+        (("003C", "CodingValue.Bitfield_Param_RearAxleSteer"), "with_Rear_Axle_Steerin".to_string()),
+        (("0069", "CodingValue.Param_StatuTermi30OutpuPin9"), "activated_trailer_mode".to_string()),
+        (("0069", "CodingValue.Bitfield2_Param_DimmuFLED"), "activated_trailer_mode".to_string()),
+        (("0036", "CodingValue.Bitfield_Param_VehicWithoPasseSSG"), "passenger_SSG_installed".to_string()),
+        (("0036", "CodingValue.Bitfield2_Param_LocatLordoButto"), "not_active".to_string()),
+        (("0604", "TABROW_GaragDoorOpeneSuppoDoorName.Bitfield_Param_GaragDoorOpeneSuppoDoorName"), "Bubba".to_string()),
+        ]);
 
-macro_rules! printp0 {
-    ($vec:expr, $($arg:tt)*) => {{
-        let joined = $vec.join(" // ");
-        println!("{} {}", joined, format!($($arg)*));
-    }};
+        // Attempt to find the target value in the map
+        predefined_values.get(&(diag_addr, target_name)).cloned()
 }
 
-fn select_measurement(measurements: &Vec<Measurement>, title: &String) -> Option<Measurement> {
-    for m in measurements {
-        if m.get_title().as_str() == title.as_str() {
-            return Some(m.clone());
-        }
+fn group_zdcs_by_diag_addr(zdcs: &[Zdc]) -> HashMap<String, Vec<&Zdc>> {
+    let mut zdc_groups: HashMap<String, Vec<&Zdc>> = HashMap::new();
+    for zdc in zdcs {
+        zdc_groups
+            .entry(zdc.diag_addr.value.clone())
+            .or_insert_with(Vec::new)
+            .push(zdc);
     }
-    None
+    zdc_groups
 }
 
-fn select_value(other_values: &Vec<ValueEnum>, label: &String) -> Option<ValueEnum> {
-    if let Some(other_value) = other_values.iter().find(|v| &v.get_label().as_str() == &label.as_str()) {
-        return Some(other_value.clone());
-    }
-    None
+fn deduplicate_zdc_files(zdcs: &[&Zdc]) -> Vec<String> {
+    zdcs.iter()
+        .map(|z| z.zdc_file.clone())
+        .collect::<HashSet<_>>() // Deduplicate using HashSet
+        .into_iter()
+        .collect()
 }
 
-fn should_compare(m: &Measurement, cfg: &DiffConfig) -> bool {
-    match m {
-        Measurement::Codierung(_) => cfg.include_coding,
-        Measurement::Identifikation(_) => cfg.include_identification,
-        Measurement::Fehler(_) => cfg.include_mistakes,
-        Measurement::Messwerte(_) => cfg.include_values,
-        Measurement::ErweiterterFehlerspeicher(_) => cfg.include_extended_errors,
-    }
-}
-
-fn print_measurements_diff(p0: &mut Vec<String>, measurements: &Vec<Measurement>, other_measurements: &Vec<Measurement>, diff_config: &DiffConfig) {
-    for measurement in measurements {
-        if !should_compare(&measurement, diff_config) {
-            continue;
-        }
-        p0.push(measurement.get_title().clone());
-        let Some(other_measurement) = select_measurement(&other_measurements, &measurement.get_title()) else {
-            printp0!(p0, ":: measurement was not found in second VAL");
-            continue;
-        };
-
-        match (&measurement.get_submeasurements(), &other_measurement.get_submeasurements()) {
-            (Some(nested_measurements), Some(other_nested_measurements)) =>
-                print_measurements_diff(p0, nested_measurements, other_nested_measurements, diff_config),
-            (Some(_), None) => printp0!(p0, ":: sub-measurements were not found in second VAL"),
-            _ => (),
-        }
-
-        print_values_diff(p0, &measurement.get_values(), &other_measurement.get_values());
-        p0.pop();
-    }
-}
-
-fn print_values_diff(p0: &mut Vec<String>, values: &Option<&Vec<ValueEnum>>, other_values: &Option<&Vec<ValueEnum>>) {
-    if !values.is_none() && other_values.is_none() {
-        printp0!(p0, ":: values were not found in second VAL");
-        return;
-    }
-    match (&values, &other_values) {
-         (Some(values), Some(other_values)) => {
-            for value in *values {
-                p0.push(value.get_text().clone());
-                let Some(other_value) = select_value(other_values, &value.get_label()) else {
-                    printp0!(p0, ":: value was not found in second VAL");
-                    p0.pop();
-                    continue;
-                };
-                if value.get_value() != other_value.get_value() {
-                    printp0!(p0, ":: '{}' -> '{}'",
-                    value.get_value().`unwrap_or`(&"<undefined>".to_string()),
-                    other_value.get_value().unwrap_or(&"<undefined>".to_string()));
+fn build_zdc_param_map(zdcs: &[&Zdc]) -> HashMap<(String, String), HashMap<String, Vec<String>>> {
+    let mut parameter_map: HashMap<(String, String), HashMap<String, Vec<String>>> = HashMap::new();
+    for zdc in zdcs {
+        for instr in &zdc.lst {
+            if let Some(service) = Zdc::extract_service(instr) {
+                if let Some(translations) = &service.transl {
+                    if let Some(params) = &translations.params {
+                        let srv_name = translations
+                            .srv_name
+                            .clone()
+                            .unwrap_or_else(|| "Unknown".to_string());
+                        for param in params {
+                            parameter_map
+                                .entry((srv_name.clone(), param.name.clone()))
+                                .or_insert_with(HashMap::new)
+                                .entry(param.value.clone())
+                                .or_insert_with(Vec::new)
+                                .push(service.phase.clone());
+                        }
+                    }
                 }
-                p0.pop();
             }
         }
-        (Some(_), None) => {
-            printp0!(p0, ":: values were not found in second VAL");
-            return;
+    }
+    parameter_map
+}
+
+fn process_parameter_map(
+    diag_addr: &str,
+    parameter_map: HashMap<(String, String), HashMap<String, Vec<String>>>,
+    val: Option<&VehicleAnalysisLog>)
+ {
+    for ((srv_name, name), value_map) in parameter_map {
+       
+        let unique_values: Vec<_> = value_map.keys().collect();
+        let mut all_phases = vec![];
+        for phases in value_map.values() {
+            all_phases.extend(phases.iter().cloned());
         }
-        (None, Some(_)) => {
-            printp0!(p0, ":: values were not found in first VAL");
-            return;
+
+        let target_name = format!("{}.{}", srv_name, name);
+
+        let mut target_value = None;
+
+        match val {
+            Some(val) => {
+                target_value = get_target_value_by_name(diag_addr, &target_name);
+            }
+            None => {
+                target_value = None;
+            }
         }
-        _ => (),
+
+
+        match target_value {
+            None => match unique_values.len() {
+                1 => {
+                    let value = unique_values[0];
+                    if value_map[value].len() > 1 {
+                        println!(
+                            "[ZDC-MATCH] [{}] >> {}.{}: {}",
+                            all_phases.join(" -> "),
+                            srv_name,
+                            name,
+                            value,                            
+                        );
+                    } else {
+                        println!(
+                            "[ZDC-SINGLE] [{}] >> {}.{}: {}",
+                            all_phases.join(" -> "),
+                            srv_name,
+                            name,
+                            value
+                        );
+                    }
+                }
+                _ => {
+                    let all_values = unique_values
+                        .iter()
+                        .map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" -> ");
+                    println!(
+                        "[ZDC-DIFF] [{}] >> {}.{}: {}",
+                        all_phases.join(" -> "),
+                        srv_name,
+                        name,
+                        all_values
+                    );
+                }
+            },
+            Some(ref target_val) => {
+                let all_values = unique_values
+                    .iter()
+                    .map(|v| v.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" -> ");
+                if unique_values.len() == 1 && unique_values[0] == target_val {
+                    println!(
+                        "[ZDC-VAL-MATCH] [{} => VAL] >> {}.{}: {} => {}",
+                        all_phases.join(" -> "),
+                        srv_name,
+                        name,
+                        all_values,                        
+                        target_val
+                    );
+                } else {
+                    println!(
+                        "[ZDC-VAL-DIFF] [{} => VAL] >> {}.{}: {} => {}",
+                        all_phases.join(" -> "),
+                        srv_name,
+                        name,
+                        all_values,                        
+                        target_val
+                    );
+                }
+            }
+        }
     }
 }
 
-pub fn diff(args: &DiffArgs) -> Result<()> {
-    let val1 = &VehicleAnalysisLog::from_zip(&args.zip1)?;
-    let val2 = &VehicleAnalysisLog::from_zip(&args.zip2)?;
+fn compare_parameters_with_target_in_all_zdcs(
+    zdcs: &[Zdc],
+    val: Option<&VehicleAnalysisLog>)
+    {
+    let zdc_groups = group_zdcs_by_diag_addr(zdcs);
 
-    let diff_config = &mut DiffConfig::new(args.include_coding,
-                                           args.include_mistakes,
-                                           args.include_identification,
-                                           args.include_values,
-                                           args.include_extended_errors);
-    let mut missing_sections2 = vec![];
+    for (diag_addr, zdcs) in zdc_groups {
+ 
+        // Build parameter map and process it
+        let zdc_param_map = build_zdc_param_map(&zdcs);
+        
+        if !zdc_param_map.is_empty() {
+               // Deduplicate zdc_files
+               let unique_files = deduplicate_zdc_files(&zdcs);
 
-    let mut p0 = vec![];
-    for section in val1.result.sections.iter() {
-        p0.push(section.get_title().clone());
-        let Some(other_section) = val2.get_section_by_title(&section.get_title()) else {
-            missing_sections2.push(section.get_title().clone());
-            p0.pop();
-            continue;
-        };
-        print_measurements_diff(&mut p0, &section.get_measurements(), &other_section.get_measurements(), diff_config);
-        p0.pop();
+               // Print diag_addr and deduplicated zdc_files
+               println!(
+                   "Diagnosis Address: {} >> ZDC: {}",
+                   diag_addr,
+                   unique_files.join(",")
+               );
+       
+            process_parameter_map(&diag_addr, zdc_param_map, val);
+        }
+    }
+}
+
+pub fn zdcdiff(args: &ZdcDiffArgs) -> Result<()> {
+    
+    let zdc_dump_config = &mut ZdcDiffConfig::new(args.include_zdc_file,
+        args.include_diag_addr,
+        args.include_phase,
+        args.include_srv_name,
+        args.compare_phases);
+
+    let zdc_vec = &Zdc::from_dir(&args.dir)?;
+    
+    if let Some(zip) = &args.zip {
+
+        let val = &VehicleAnalysisLog::from_zip(&zip)?;
+        
+        // Handle the case where the zip argument is provided
+        compare_parameters_with_target_in_all_zdcs(
+            &zdc_vec, 
+            Some(&val));
+
+    } else {
+        
+        // Handle the case where the zip argument is not provided
+        
+          compare_parameters_with_target_in_all_zdcs(
+            &zdc_vec,
+            None);
     }
 
-    if missing_sections2.len() > 0 {
-        println!("Missing section(s) in second VAL: {}", missing_sections2.join(","));
-    }
+    /*
+    // Compare target value with parameters in Zdc entries
+    compare_target_with_zdc_parameters(
+        &zdc_vec,
+        "0006",
+        "CodingValue.Bitfield2_Param_SLVButtoLocat",
+        "internal_contro2l",
+    );
+    */
 
+    /*
+    // Find all Zdc instances with matching diag_addr.value
+    let matching_zdcs = find_zdcs_by_diag_addr(&zdc_vec, "0069");
+
+    if !matching_zdcs.is_empty() {
+        println!("Found {} Zdc(s) with diag_addr: {ADDR1}", matching_zdcs.len());
+
+        // Now, find the ParameterTranslation value within the matching Zdc entries
+        if let Some(value) = find_parameter_translation_value_in_zdcs(&matching_zdcs, "CodingValue.Param_Switc") {
+            println!("Found ParameterTranslation.value: {}", value);
+        } else {
+            println!("ParameterTranslation not found.");
+        }
+    } else {
+        println!("No Zdc found with the given diag_addr.value.");
+    } 
+    */
     Ok(())
 }
 
+/// Compares `ParameterTranslation.value` by `ParameterTranslation.name` in the given Zdc.
+fn compare_parameters(zdc: &Zdc, zdc_diff_config: &ZdcDiffConfig) {
+    let mut printed_diag_addr = false;
+
+    // Map to track each combination of `srv_name`, `name`, and `value`
+    let mut parameter_map: HashMap<(String, String), HashMap<String, Vec<String>>> = HashMap::new();
+
+    // Process each instruction
+    for instr in &zdc.lst {
+        if let Some(service) = Zdc::extract_service(instr) {
+            if let Some(translations) = &service.transl {
+                if let Some(params) = &translations.params {
+                    let srv_name = translations.srv_name.clone().unwrap_or_else(|| "Unknown".to_string());
+                    for param in params {
+                        // Create a unique key based on srv_name and name
+                        parameter_map
+                            .entry((srv_name.clone(), param.name.clone()))
+                            .or_insert_with(HashMap::new)
+                            .entry(param.value.clone())
+                            .or_insert_with(Vec::new)
+                            .push(service.phase.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    // Analyze and classify results
+    for ((srv_name, name), value_map) in parameter_map {
+        if !printed_diag_addr {
+            // Print diag_addr only if there's a valid output
+            println!(
+                "Diagnosis Address : {} >> ZDC File: {}",
+                zdc.diag_addr.value,
+                zdc.zdc_file
+            );
+            printed_diag_addr = true;
+        }
+
+        let unique_values: Vec<_> = value_map.keys().collect();
+
+        // Collect all phases across values for consistency in formatting
+        let mut all_phases = vec![];
+        for phases in value_map.values() {
+            all_phases.extend(phases.iter().cloned());
+        }
+
+        match unique_values.len() {
+            1 => {
+                // Only one unique value
+                let value = unique_values[0];
+                let srv_names_phases = &value_map[value];
+                if srv_names_phases.len() > 1 {
+                    println!(
+                        "[ZDC-MATCH] [{}] >> {}.{}: {}",
+                        all_phases.join(", "),
+                        srv_name,
+                        name,
+                        value
+                    );
+                } else {
+                    println!(
+                        "[ZDC-SINGLE] [{}] >> {}.{}: {}",
+                        srv_names_phases[0], // Phase
+                        srv_name,
+                        name,
+                        value
+                    );
+                }
+            }
+            _ => {
+                // Multiple unique values exist
+                let all_values = unique_values
+                    .iter()
+                    .map(|v| v.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" -> ");
+                println!(
+                    "[ZDC-DIFF] [{}] >> {}.{}: {}",
+                    all_phases.join(" -> "),
+                    srv_name,
+                    name,
+                    all_values
+                );
+            }
+        }
+    }
+}
+
+/// Finds all `Zdc` instances with the matching `diag_addr.value`.
+fn find_zdcs_by_diag_addr<'a>(zdc_list: &'a [Zdc], target_addr: &str) -> Vec<&'a Zdc> {
+    zdc_list.iter().filter(|zdc| zdc.diag_addr.value == target_addr).collect()
+}
+
+/// Finds the `ParameterTranslation.value` for the given `target_name` across multiple `Zdc`s.
+pub fn find_parameter_translation_value_in_zdcs<'a>(
+    zdcs: &[&'a Zdc],
+    target_name: &str,
+) -> Option<String> {
+    for zdc in zdcs {
+        if let Some(value) = zdc.find_parameter_translation_value(target_name) {
+            return Some(value);
+        }
+    }
+    None
+}
+
+// Compare target value with parameters in Zdc entries
+fn compare_target_with_zdc_parameters(
+    zdc_list: &[Zdc],
+    diag_addr_value: &str,
+    target_name: &str,
+    target_value: &str,
+) {
+    // Find all Zdc instances matching the specified `diag_addr_value`
+    let matching_zdcs = find_zdcs_by_diag_addr(zdc_list, diag_addr_value);
+
+    if matching_zdcs.is_empty() {
+        println!("No Zdc found with the given diag_addr.value: {}", diag_addr_value);
+        return;
+    }
+
+    // Collect all matching parameter values and phases
+    let mut parameter_values: Vec<(String, String)> = vec![]; // (value, phase)
+    let mut srv_name = String::new();
+
+    for zdc in &matching_zdcs {
+        for instr in &zdc.lst {
+            if let Some(service) = Zdc::extract_service(instr) {
+                if let Some(translations) = &service.transl {
+                    if let Some(params) = &translations.params {
+                        srv_name = translations.srv_name.clone().unwrap_or_else(|| "Unknown".to_string());
+                        for param in params {
+                            let full_name = format!("{}.{}", srv_name, param.name);
+                            if full_name == target_name {
+                                parameter_values.push((param.value.clone(), service.phase.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if parameter_values.is_empty() {
+        println!("No ParameterTranslation found with name: {}", target_name);
+        return;
+    }
+
+    // Process and compare values
+    let phases: Vec<String> = parameter_values.iter().map(|(_, phase)| phase.clone()).collect();
+    let zdc_values: Vec<String> = parameter_values.iter().map(|(value, _)| value.clone()).collect();
+
+    if zdc_values.iter().all(|value| value == target_value) && zdc_values.len() > 0 {
+        // All values match the target
+        let zdc_value_str = zdc_values.join(" -> ");
+        println!(
+            "[ZDC-VAL-MATCH] [{} => VAL] >> {}: {} => {}",
+            phases.join(" -> "),
+            target_name,
+            zdc_value_str,
+            target_value
+        );
+    } else {
+        // At least one value differs
+        let zdc_value_str = zdc_values.join(" -> ");
+        println!(
+            "[ZDC-VAL-DIFF] [{} = VAL] >> {}: {} => {}",
+            phases.join(" -> "),
+            target_name,
+            zdc_value_str,
+            target_value
+        );
+    }
+}
