@@ -3,6 +3,8 @@ use anyhow::Result;
 use valrs::diff::{diff, DiffArgs};
 use valrs::dump::{dump, DumpArgs};
 use valrs::zdcdump::{zdcdump, ZdcDumpArgs};
+use valrs::zdcdiff::{zdcdiff, ZdcDiffArgs};
+
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -16,6 +18,8 @@ enum Commands {
     Diff(DiffArgs),
     Dump(DumpArgs),
     Zdcdump(ZdcDumpArgs),
+    Zdcdiff(ZdcDiffArgs),
+    
 }
 
  fn main() -> Result<()> {
@@ -23,7 +27,9 @@ enum Commands {
      match &args.command {
          Commands::Diff(cmd_args) => diff(cmd_args)?,
          Commands::Dump(cmd_args) => dump(cmd_args)?,
-         Commands::Zdcdump(cmd_args) => zdcdump(cmd_args)?
+         Commands::Zdcdump(cmd_args) => zdcdump(cmd_args)?,
+         Commands::Zdcdiff(cmd_args) => zdcdiff(cmd_args)?,
+         
      }
      Ok(())
 }

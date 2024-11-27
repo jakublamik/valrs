@@ -24,7 +24,7 @@ pub struct Zdc {
 
 impl Zdc {
 
-    // Read all files in a directory and  deserialize into Zdc
+    // Read (almost) all files in a directory and deserialize into Zdc
     pub fn from_dir(directory: &str) -> anyhow::Result<Vec<Zdc>> {
         let path = Path::new(directory);
         if !path.is_dir() {
@@ -35,7 +35,9 @@ impl Zdc {
             let entry = entry?;
             let file_path = entry.path();
             if let Some(file_name) = file_path.file_name().and_then(|n| n.to_str()) {
-                if file_name.contains("IL") && file_path.extension().and_then(|ext| ext.to_str()) == Some("xml") {                   
+                println!("Deserializing: {}", file_name);
+                // Skip _SRV_ files for now
+                if file_name.contains("IL") && file_path.extension().and_then(|ext| ext.to_str()) == Some("xml") {                    
                     let file = File::open(&file_path)?;
                     let reader = BufReader::new(file);
                     let instr_lst = &mut quick_xml::de::Deserializer::from_reader(reader);
