@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct Zdc {
+pub struct InstrLst {
     #[serde(rename = "@xmlns")]
     pub xmlns: String,
     #[serde(rename = "@ZDCFile")]
@@ -22,10 +22,10 @@ pub struct Zdc {
     pub lst: Vec<Instr>,
 }
 
-impl Zdc {
+impl InstrLst {
 
     // Read (almost) all files in a directory and deserialize into Zdc
-    pub fn from_dir(directory: &str) -> anyhow::Result<Vec<Zdc>> {
+    pub fn from_dir(directory: &str) -> anyhow::Result<Vec<InstrLst>> {
         let path = Path::new(directory);
         if !path.is_dir() {
             return Err(anyhow::anyhow!("Provided path is not a directory."));
@@ -41,7 +41,7 @@ impl Zdc {
                     let file = File::open(&file_path)?;
                     let reader = BufReader::new(file);
                     let instr_lst = &mut quick_xml::de::Deserializer::from_reader(reader);
-                    let deserialized: Zdc = serde_path_to_error::deserialize(instr_lst).context("Failed deserializing")?;
+                    let deserialized: InstrLst = serde_path_to_error::deserialize(instr_lst).context("Failed deserializing")?;
                     result.push(deserialized);
                 }
             }
@@ -78,6 +78,13 @@ impl Zdc {
             Instr::HexService(service) => Some(service),
             Instr::FlashSession(service) => Some(service),
             _ => None, // Other types of Instr do not contain a Service
+        }
+    }
+    /// Extracts the `Service` object from an `Instr` if it contains one.
+    pub fn extract_data_sets(instr: &Instr) -> Option<&DataSets> {
+        match instr {
+            Instr::DataSets(data_sets) => Some(data_sets),
+            _ => None, // Other types of Instr do not contain a data_sets
         }
     }
 }
@@ -216,7 +223,7 @@ pub struct HumanTranslations {
     #[serde(rename = "@ServiceName")]
     pub srv_name: Option<String>,
      #[serde(rename = "DatasetTranslation")]
-    pub datasets: Option<Vec<DatasetTransalations>>,
+    pub data_sets: Option<Vec<DatasetTransalations>>,
     #[serde(rename = "Translation")]
     pub params: Option<Vec<ParameterTranslation>>,
 
