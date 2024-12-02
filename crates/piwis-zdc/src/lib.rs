@@ -4,7 +4,6 @@ use std::path::Path;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct InstrLst {
@@ -35,13 +34,13 @@ impl InstrLst {
             let entry = entry?;
             let file_path = entry.path();
             if let Some(file_name) = file_path.file_name().and_then(|n| n.to_str()) {
-                println!("Deserializing: {}", file_name);
+                
                 // Skip _SRV_ files for now
-                if file_name.contains("IL") && file_path.extension().and_then(|ext| ext.to_str()) == Some("xml") {                    
+                if file_name.contains("IExIL") && file_path.extension().and_then(|ext| ext.to_str()) == Some("xml") {                    
                     let file = File::open(&file_path)?;
                     let reader = BufReader::new(file);
                     let instr_lst = &mut quick_xml::de::Deserializer::from_reader(reader);
-                    let deserialized: InstrLst = serde_path_to_error::deserialize(instr_lst).context("Failed deserializing")?;
+                    let deserialized: InstrLst = serde_path_to_error::deserialize(instr_lst).with_context(|| format!("Failed deserializing file: {}", file_name))?;
                     result.push(deserialized);
                 }
             }
