@@ -66,8 +66,6 @@ fn dump_parameters(instr_lst: &InstrLst, zdc_dump_config: &ZdcDumpConfig) {
                         
                         prnt_diag_addr = false;
                     }        
-                    
-                    prnt_diag_addr = false;
 
                     let srv_name = translations.srv_name.clone().unwrap_or_else(|| "Unknown".to_string());                        
                     for param in params {
