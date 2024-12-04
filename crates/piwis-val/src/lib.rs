@@ -258,8 +258,8 @@ impl Section {
             Section::ECU(section) => &section.measurements,
         }
     }
-    #[allow(dead_code)]
-    fn get_measurement_by_title(&self, title: &String) -> Option<Measurement> {
+    
+    pub fn get_measurement_by_title(&self, title: &String) -> Option<Measurement> {
         match self {
             Section::ECU(section) => get_measurement_by_title(&section.measurements, title),
         }
@@ -352,8 +352,7 @@ impl Measurement {
         }
     }
 
-    #[allow(dead_code)]
-    fn get_value_by_label(&self, label: &String) -> Option<&ValueEnum> {
+    pub fn get_value_by_label(&self, label: &String) -> Option<&ValueEnum> {
         match self.get_values() {
             Some(values) => values.iter().find(|v| match v {
                 ValueEnum::Num(n) => &n.label == label,
@@ -370,7 +369,7 @@ impl Measurement {
         }
     }
 
-    #[allow(dead_code)]
+    
     fn get_submeasurement_by_title(&self, title: &String) -> Option<Measurement> {
         match self {
             Measurement::Fehler(m) => match &m.measurements {

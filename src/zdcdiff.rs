@@ -1,8 +1,9 @@
 use anyhow::Result;
-use piwis_val::{Measurement, ValueEnum, VehicleAnalysisLog};
+use piwis_val::{Measurement, ValueEnum, VehicleAnalysisLog, Section};
 use piwis_zdc::{HumanTranslations, InstrLst, Instr};
 use indexmap::{IndexMap, IndexSet};
-use std::collections::{HashMap};
+use serde::de::value;
+use std::collections::{HashMap, HashSet};
 
 #[derive(clap::Args, Debug)]
 pub struct ZdcDiffArgs {
@@ -79,8 +80,9 @@ fn dedup_instr_files(instr_lsts: &[&InstrLst]) -> Vec<String> {
         .collect()
 }
 
-fn build_instr_maps(instr_lsts: &[&InstrLst]) -> IndexMap<(String, String), IndexMap<String, Vec<String>>> {
-    let mut parameter_map: IndexMap<(String, String), IndexMap<String, Vec<String>>> = IndexMap::new();
+fn build_instr_maps(instr_lsts: &[&InstrLst]) -> IndexMap<(String, String), Vec<(String, String)>> {
+    let mut parameter_map: IndexMap<(String, String), Vec<(String, String)>> = IndexMap::new();
+    
     for instr_lst in instr_lsts {
         for instr in &instr_lst.lst {
             if let Some(service) = InstrLst::extract_service(instr) {
@@ -94,42 +96,22 @@ fn build_instr_maps(instr_lsts: &[&InstrLst]) -> IndexMap<(String, String), Inde
                     if let Some(params) = &translations.params {
 
                         for param in params {
-                            println!("ZDC -> {}.{}:{} {}", srv_name.clone(), param.name.clone(), param.value.clone(),service.phase.clone());
                             parameter_map
                                 .entry((srv_name.clone(), param.name.clone()))
-                                .or_insert_with(IndexMap::new)
-                                .entry(param.value.clone())
                                 .or_insert_with(Vec::new)
-                                .push(service.phase.clone());
+                                .push((service.phase.clone(), param.value.clone()));
                         } 
-                        /*
+                        
                     } else if let Some(data_sets) = &translations.data_sets {
                         
-                        for data_set in data_sets {
-                            println!("DTS -> {}.{}:{} {}", data_set.rd_id.clone(), data_set.srv_name.clone(),data_set.value.clone(), service.phase.clone());
+                        for data_set in data_sets {                            
                             parameter_map
-                                .entry((data_set.rd_id.clone(),data_set.srv_name.clone()))
-                                .or_insert_with(IndexMap::new)
-                                .entry(data_set.value.clone())
-                                .or_insert_with(Vec::new)
-                                .push(service.phase.clone());
-                        }*/
-                    } 
-                
-                
+                                .entry((format!("DATASET.{}",data_set.rd_id.clone()),data_set.srv_name.clone()))
+                                .or_insert_with(Vec::new)                                                         
+                                .push((service.phase.clone(), data_set.value.clone()));
+                        }
+                    }                                 
                 } 
-                /*
-                else if let Some(data_sets) = InstrLst::extract_data_sets(instr) {
-                     for data_set in &data_sets.data_set {
-                        parameter_map
-                            .entry((data_set.did.clone(), data_set.name.clone()))
-                            .or_insert_with(IndexMap::new)
-                            .entry(data_set.name.clone())
-                            .or_insert_with(Vec::new)
-                            .push("DATASET".to_string());
-                    }
-                    
-                }  */
             }
         }
     }
@@ -138,23 +120,25 @@ fn build_instr_maps(instr_lsts: &[&InstrLst]) -> IndexMap<(String, String), Inde
 
 fn process_maps(
     diag_addr: &str,
-    parameter_map: IndexMap<(String, String), IndexMap<String, Vec<String>>>,
+    parameter_map: IndexMap<(String, String), Vec<(String, String)>>,
     val: Option<&VehicleAnalysisLog>)
  {
-    for ((srv_name, name), value_map) in parameter_map {
-        
-        println!("srv_name: {} name {}", srv_name.clone(), name.clone());
-            
-        let unique_values: Vec<_> = value_map.keys().collect();
+    for ((srv_name, name), value_list) in &parameter_map {
+                
+        let mut unique_values = HashSet::new();
         let mut all_phases = vec![];
+        let mut all_values = vec![];
     
-        for phases in value_map.values() {          
-            println!("Phases: {:?}", phases.clone());
-            all_phases.extend(phases.iter().cloned());
-
-            println!("Phases {:?} All phases: {:?} Unqiue values {:?}", phases.clone(), all_phases.clone(), unique_values.clone());
+        for (phase, value) in value_list {          
+            
+            all_phases.push(phase.clone());
+            all_values.push(value.clone());
+            unique_values.insert(value.clone());
+           
         }
-
+        
+        let unique_values: Vec<_> = unique_values.into_iter().collect();
+  
         let target_name = format!("{}.{}", srv_name, name);
 
         let target_value;
@@ -170,15 +154,14 @@ fn process_maps(
 
         match target_value {
             None => match unique_values.len() {
-                1 => {
-                    let value = unique_values[0];
-                    if value_map[value].len() > 1 {
+                1 => {                    
+                    if all_values.len() > 1 {
                         println!(
                             "[ZDC-MATCH] [{}] >> {}.{}: {}",
                             all_phases.join(" -> "),
                             srv_name,
                             name,
-                            value,                            
+                            all_values.join(" -> "),                          
                         );
                     } else {
                         println!(
@@ -186,38 +169,29 @@ fn process_maps(
                             all_phases.join(" -> "),
                             srv_name,
                             name,
-                            value
+                            all_values.join(" -> "),        
                         );
                     }
                 }
                 _ => {
-                    let all_values = unique_values
-                        .iter()
-                        .map(|v| v.as_str())
-                        .collect::<Vec<_>>()
-                        .join(" -> ");
                     println!(
                         "[ZDC-DIFF] [{}] >> {}.{}: {}",
                         all_phases.join(" -> "),
                         srv_name,
                         name,
-                        all_values
+                        all_values.join(" -> "),
                     );
                 }
             },
             Some(ref target_val) => {
-                let all_values = unique_values
-                    .iter()
-                    .map(|v| v.as_str())
-                    .collect::<Vec<_>>()
-                    .join(" -> ");
-                if unique_values.len() == 1 && unique_values[0] == target_val {
+
+                if unique_values.len() == 1 && unique_values[0] == *target_val {
                     println!(
                         "[ZDC-VAL-MATCH] [{} => VAL] >> {}.{}: {} => {}",
                         all_phases.join(" -> "),
                         srv_name,
                         name,
-                        all_values,                        
+                        all_values.join(" -> "),                       
                         target_val
                     );
                 } else {
@@ -226,7 +200,7 @@ fn process_maps(
                         all_phases.join(" -> "),
                         srv_name,
                         name,
-                        all_values,                        
+                        all_values.join(" -> "),           
                         target_val
                     );
                 }
@@ -242,13 +216,13 @@ fn build_val_maps(val: Option<&VehicleAnalysisLog>) -> IndexMap<(String, String)
     for section in val.unwrap().result.sections.iter() {
         let mut p0 = vec![];
         p0.push(section.get_title().clone());
-        print_val_params(&mut p0, &section.get_measurements());
+   //     print_val_params(&mut p0, &section.get_measurements());
         p0.pop();
     }
     val_map
 }
 
-fn compare_instr_lst_with_val(
+fn compare_instr_val(
     instr_lsts: &[InstrLst],
     val: Option<&VehicleAnalysisLog>)
     {
@@ -292,20 +266,20 @@ pub fn zdcdiff(args: &ZdcDiffArgs) -> Result<()> {
         let val = &VehicleAnalysisLog::from_zip(&zip)?;
         
         // Build val parameter 
-        let val_param_map = build_val_maps(Some(val));
+      //  let val_param_map = build_val_maps(Some(val));
       
-        group_val_by_diag_addr(Some(val)); /* -> IndexMap<String, Section>*/ 
+        let val_param_map =  group_val_by_diag_addr(Some(val)); /* -> IndexMap<String, Section>*/ 
 
 
         // Handle the case where the zip argument is provided
-        compare_instr_lst_with_val(
+        compare_instr_val(
             &instr_lsts, 
             Some(&val));
 
     } else {
         
         // Handle the case where the zip argument is not provided
-        compare_instr_lst_with_val(
+        compare_instr_val(
             &instr_lsts,
             None);
     }
@@ -351,74 +325,43 @@ fn print_val_params(p0: &mut Vec<String>, measurements: &Vec<Measurement>) {
     }
 }    
 
- /*   
-    let mut p0 = vec![];
+fn group_val_by_diag_addr(val: Option<&VehicleAnalysisLog>) -> HashMap<String, Vec<String>> {
+    let mut val_groups: HashMap<String, Vec<String>> = HashMap::new();
 
-    for section in val.result.sections.iter() {
+    if let Some(vehicle_log) = val {
+        for section in &vehicle_log.result.sections {
+            let m = &section.get_measurement_by_title(&"Identification".to_string()).unwrap();
 
-    }
-  */
-    /* 
-    for zdc in zdcs {
-        for instr in &zdc.lst {
-            if let Some(service) = Zdc::extract_service(instr) {
-                if let Some(translations) = &service.transl {
-                    if let Some(params) = &translations.params {
-                        let srv_name = translations
-                            .srv_name
-                            .clone()
-                            .unwrap_or_else(|| "Unknown".to_string());
-                        for param in params {
-                            parameter_map
-                                .entry((srv_name.clone(), param.name.clone()))
-                                .or_insert_with(IndexMap::new)
-                                .entry(param.value.clone())
-                                .or_insert_with(Vec::new)
-                                .push(service.phase.clone());
-                        }
-                    }
-                }
-            }
+            let value_txt = get_section_diagr_addr(section, &m);
+            
+            println!("Section: {} -> {} -> {}", section.get_title(), m.get_title(), value_txt);
+
+            val_groups.entry(value_txt.clone())
+                .or_insert_with(Vec::new)
+                .push((*section.get_title()).clone());
         }
-    }*/
+    }
 
-fn group_val_by_diag_addr(val: Option<&VehicleAnalysisLog>) /* -> IndexMap<String, Section>*/ {
+    val_groups
+}
+
+fn get_section_diagr_addr(section: &Section, m: &Measurement) -> String {
+
+    let labels = [
+        "TABROW_SubsyIdent.Param_SubsyIdentID",
+        "Gateway_Identification.Gateway_Identification_Diagnose_ID_VW",
+        "TABROW_BusmaIdent.Param_ECUID",
+        "System_Identification.System_Identification_Subsystem_ID",
+        "System_Identification.System_Identification_Param_SubsyIdentID",
+    ];
+
+    let value_txt = labels.iter()
+        .filter_map(|label| m.get_value_by_label(&label.to_string()))
+        .map(|value| value.get_value().unwrap_or(&"<undefined>".to_string()).to_string())
+        .next()
+        .unwrap_or_else(|| "<undefined>".to_string());
+
    
     
-   /* let mut val_groups: IndexMapMap<String, Section> = IndexMap::new();  
-
-    for section in val.unwrap().result.sections.iter() {
-                
-        let m = section.get_measurement_by_title(&"Identification".to_string()).unwrap();
-        let undefined_value = "<undefined>".to_string();
-
-        if let Some(value) = m.get_value_by_label(&"TABROW_SubsyIdent.Param_SubsyIdentID".to_string()) {
-            let value_txt = value.get_value().unwrap_or(&undefined_value);
-            println!("Section: {} -> {} -> {}", section.get_title().clone(), m.get_title(), value_txt);
-        } else if let Some(value) = m.get_value_by_label(&"Gateway_Identification.Gateway_Identification_Diagnose_ID_VW".to_string()) {
-            let value_txt = value.get_value().unwrap_or(&undefined_value);
-            println!("Section: {} -> {} -> {}", section.get_title().clone(), m.get_title(), value_txt);
-        } else if let Some(value) = m.get_value_by_label(&"TABROW_BusmaIdent.Param_ECUID".to_string()) {
-            let value_txt = value.get_value().unwrap_or(&undefined_value);
-            println!("Section: {} -> {} -> {}", section.get_title().clone(), m.get_title(), value_txt);
-        } else if let Some(value) = m.get_value_by_label(&"System_Identification.System_Identification_Subsystem_ID".to_string()) {
-            let value_txt = value.get_value().unwrap_or(&undefined_value);
-            println!("Section: {} -> {} -> {}", section.get_title().clone(), m.get_title(), value_txt);
-        } else if let Some(value) = m.get_value_by_label(&"System_Identification.System_Identification_Param_SubsyIdentID".to_string()) {
-            let value_txt = value.get_value().unwrap_or(&undefined_value);
-            println!("Section: {} -> {} -> {}", section.get_title().clone(), m.get_title(), value_txt);
-        } else {
-        println!("Section: {} -> {} -> {}", section.get_title().clone(), m.get_title(), undefined_value);
-        }
-
-     
-
-
-        val_groups
-            .entry(value_txt.clone())
-            .or_insert_with(Vec::new)
-            .push(section);
-    } 
-    val_groups
-    } */
+    value_txt
 }

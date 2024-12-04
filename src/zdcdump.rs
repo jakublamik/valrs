@@ -81,7 +81,7 @@ fn dump_parameters(instr_lst: &InstrLst, zdc_dump_config: &ZdcDumpConfig) {
 
                     for data_set in data_sets {
                     println!(
-                        "[{}-DATASET] >> {}.{}: {}",
+                        "[{}] >> DATASET.{}.{}: {}",
                         service.phase,
                         data_set.rd_id,
                         data_set.srv_name,
