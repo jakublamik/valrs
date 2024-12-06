@@ -1,9 +1,10 @@
 use anyhow::Result;
-use piwis_val::{Measurement, ValueEnum, VehicleAnalysisLog, Section};
-use piwis_zdc::{HumanTranslations, InstrLst, Instr};
+use piwis_val::{Measurement, VehicleAnalysisLog};
+use piwis_zdc::{InstrLst};
 use indexmap::{IndexMap, IndexSet};
 use serde::de::value;
 use std::collections::{HashMap, HashSet};
+use regex::Regex;
 
 #[derive(clap::Args, Debug)]
 pub struct ZdcDiffArgs {
@@ -45,23 +46,64 @@ impl ZdcDiffConfig {
     }
 }
 
+fn strip_units(input: &str) -> String {
+    // Define the sequences to strip, ordered from longest to shortest
+    let units = [
+        "m/s", "km/h", "l/100 km", "mpg US", "mpg UK", "mpg \\(US\\)", "mpg \\(UK\\)", "%/sec", "%/s", "km/l", "dB\\(A\\)", "ms", "km", "min", "mm", "\\?", "l", "\\(A\\)", "%", "°C", "g", "bar", "s", "kWh", "ml", "Ω"
+    ];
 
-fn get_target_value_by_name(diag_addr: &str, target_name: &str) -> Option<String> {
-    // Example: Predefined mapping of diag_addr and target_name to target values
-    let predefined_values: HashMap<(&str, &str), String> = HashMap::from([
-        (("003C", "CodingValue.Bitfield_Param_RearAxleSteer"), "with_Rear_Axle_Steerin".to_string()),
-        (("0069", "CodingValue.Param_StatuTermi30OutpuPin9"), "activated_trailer_mode".to_string()),
-        (("0069", "CodingValue.Bitfield2_Param_DimmuFLED"), "activated_trailer_mode".to_string()),
-        (("0036", "CodingValue.Bitfield_Param_VehicWithoPasseSSG"), "passenger_SSG_installed".to_string()),
-        (("0036", "CodingValue.Bitfield2_Param_LocatLordoButto"), "not_active".to_string()),
-        (("0604", "TABROW_GaragDoorOpeneSuppoDoorName.Bitfield_Param_GaragDoorOpeneSuppoDoorName"), "Bubba".to_string()),
-        ]);
+    // Create a regex to match a number (integer or decimal, positive or negative)
+    let number_regex = Regex::new(r"^-?\d+(\.\d+)?$").unwrap();
 
-        // Attempt to find the target value in the map
-        predefined_values.get(&(diag_addr, target_name)).cloned()
+    // Check if the input contains a number followed by a unit
+    if number_regex.is_match(&input.chars().take_while(|c| c.is_digit(10) || *c == '.' || *c == '-').collect::<String>()) {
+        // Strip the units from the input
+        let mut result = input.to_string();
+        for seq in &units {
+            let re = Regex::new(&format!(r"{}", seq)).unwrap();
+            result = re.replace_all(&result, "").to_string();
+        }
+        result.trim().to_string()
+    } else {
+        // Return the input unchanged if it doesn't match the pattern
+        input.to_string()
+    }
 }
 
-fn group_instr_by_diag_addr(instr_lsts: &[InstrLst]) -> IndexMap<String, Vec<&InstrLst>> {
+fn get_val_value(val_map: HashMap<String, HashMap<String, String>>, diag_addr: &str, target_name: &str) -> Option<String> {
+    
+    let diag_addr = diag_addr.trim_start_matches('0').to_lowercase();
+    
+    let value_map = val_map.get(&diag_addr); 
+ 
+    match value_map {
+        Some(value_map) => {
+            let target_value = value_map.get(target_name);
+            return target_value.cloned();
+        }
+        None => {
+         
+            let value_map = val_map.get(&"<undefined>".to_string());           
+            match value_map {
+                Some(value_map) => {         
+                    let target_value = value_map.get(target_name);                    
+                    match target_value {
+                        Some(target_value) => {         
+                            Some(target_value.clone())
+                        }
+                        
+                        None => {         
+                            None
+                        }
+                    }
+                }
+                None => None,
+            }
+        },
+    }
+}
+
+fn group_zdc_by_diag_addr(instr_lsts: &[InstrLst]) -> IndexMap<String, Vec<&InstrLst>> {
     let mut instr_lst_groups: IndexMap<String, Vec<&InstrLst>> = IndexMap::new();
     for instr_lst in instr_lsts {
         instr_lst_groups
@@ -72,7 +114,7 @@ fn group_instr_by_diag_addr(instr_lsts: &[InstrLst]) -> IndexMap<String, Vec<&In
     instr_lst_groups
 }
 
-fn dedup_instr_files(instr_lsts: &[&InstrLst]) -> Vec<String> {
+fn dedup_zdc_files(instr_lsts: &[&InstrLst]) -> Vec<String> {
     instr_lsts.iter()
         .map(|z| z.zdc_file.clone())
         .collect::<IndexSet<_>>() // Deduplicate using IndexSet
@@ -80,7 +122,7 @@ fn dedup_instr_files(instr_lsts: &[&InstrLst]) -> Vec<String> {
         .collect()
 }
 
-fn build_instr_maps(instr_lsts: &[&InstrLst]) -> IndexMap<(String, String), Vec<(String, String)>> {
+fn build_zdc_map(instr_lsts: &[&InstrLst]) -> IndexMap<(String, String), Vec<(String, String)>> {
     let mut parameter_map: IndexMap<(String, String), Vec<(String, String)>> = IndexMap::new();
     
     for instr_lst in instr_lsts {
@@ -121,7 +163,7 @@ fn build_instr_maps(instr_lsts: &[&InstrLst]) -> IndexMap<(String, String), Vec<
 fn process_maps(
     diag_addr: &str,
     parameter_map: IndexMap<(String, String), Vec<(String, String)>>,
-    val: Option<&VehicleAnalysisLog>)
+    val_map: Option<HashMap<String, HashMap<String, String>>>)
  {
     for ((srv_name, name), value_list) in &parameter_map {
                 
@@ -141,16 +183,10 @@ fn process_maps(
   
         let target_name = format!("{}.{}", srv_name, name);
 
-        let target_value;
-
-        match val {
-            Some(val) => {
-                target_value = get_target_value_by_name(diag_addr, &target_name);
-            }
-            None => {
-                target_value = None;
-            }
-        }
+        let target_value = match &val_map {           
+            Some(val_map) => get_val_value(val_map.clone(), diag_addr, &target_name),
+            None => None,
+        };
 
         match target_value {
             None => match unique_values.len() {
@@ -184,8 +220,12 @@ fn process_maps(
                 }
             },
             Some(ref target_val) => {
-
-                if unique_values.len() == 1 && unique_values[0] == *target_val {
+               
+                let stripped_unqiue_value = strip_units(&unique_values[0]);
+                let stripped_target_value = strip_units(&target_val);
+               
+                if unique_values.len() == 1 && stripped_unqiue_value == *stripped_target_value { 
+                //if unique_values.len() == 1 && unique_values[0] == *target_val {
                     println!(
                         "[ZDC-VAL-MATCH] [{} => VAL] >> {}.{}: {} => {}",
                         all_phases.join(" -> "),
@@ -209,34 +249,21 @@ fn process_maps(
     }
 }
 
-fn build_val_maps(val: Option<&VehicleAnalysisLog>) -> IndexMap<(String, String), IndexMap<String, Vec<String>>> {
-    
-    let mut val_map: IndexMap<(String, String), IndexMap<String, Vec<String>>> = IndexMap::new();
-
-    for section in val.unwrap().result.sections.iter() {
-        let mut p0 = vec![];
-        p0.push(section.get_title().clone());
-   //     print_val_params(&mut p0, &section.get_measurements());
-        p0.pop();
-    }
-    val_map
-}
-
-fn compare_instr_val(
-    instr_lsts: &[InstrLst],
-    val: Option<&VehicleAnalysisLog>)
+fn compare_zdc_val(
+    zdc_instr_lsts: &[InstrLst],
+    val_map: Option<HashMap<String, HashMap<String, String>>>)
     {
     
-    let instr_lst_groups = group_instr_by_diag_addr(instr_lsts);
+    let zdc_groups = group_zdc_by_diag_addr(zdc_instr_lsts);
 
-    for (diag_addr, instr_lsts) in instr_lst_groups {
+    for (diag_addr, instr_lsts) in zdc_groups {
  
         // Build zdc parameter 
-        let instr_lst_param_map = build_instr_maps(&instr_lsts);
+        let zdc_map = build_zdc_map(&instr_lsts);
         
-        if !instr_lst_param_map.is_empty() {
+        if !zdc_map.is_empty() {
                // Deduplicate zdc_files
-               let unique_files = dedup_instr_files(&instr_lsts);
+               let unique_files = dedup_zdc_files(&instr_lsts);
 
                // Print diag_addr and deduplicated zdc_files
                println!(
@@ -245,7 +272,7 @@ fn compare_instr_val(
                    unique_files.join(",")
                );
             
-            process_maps(&diag_addr, instr_lst_param_map, val);
+            process_maps(&diag_addr, zdc_map, val_map.clone());
         }
     }
 }
@@ -264,22 +291,18 @@ pub fn zdcdiff(args: &ZdcDiffArgs) -> Result<()> {
     if let Some(zip) = &args.zip {
 
         let val = &VehicleAnalysisLog::from_zip(&zip)?;
-        
-        // Build val parameter 
-      //  let val_param_map = build_val_maps(Some(val));
       
-        let val_param_map =  group_val_by_diag_addr(Some(val)); /* -> IndexMap<String, Section>*/ 
-
+        let val_map =  build_val_map(Some(val)); /* -> IndexMap<String, Section>*/ 
 
         // Handle the case where the zip argument is provided
-        compare_instr_val(
+        compare_zdc_val(
             &instr_lsts, 
-            Some(&val));
+            Some(val_map));
 
     } else {
         
         // Handle the case where the zip argument is not provided
-        compare_instr_val(
+        compare_zdc_val(
             &instr_lsts,
             None);
     }
@@ -288,64 +311,57 @@ pub fn zdcdiff(args: &ZdcDiffArgs) -> Result<()> {
     Ok(())
 }
 
-fn print_val_value(p0: &mut Vec<String>, values: &Option<&Vec<ValueEnum>>) {
-
-    match (&values)
-    {
-        Some(values) => { 
-            for value in *values {
-                p0.push(value.get_label().clone());
-                p0.push(value.get_label().clone());
-                println!("{}: {}",p0.join(" -> "), value.get_value().unwrap_or(&"<undefined>".to_string()));
-                p0.pop();
-                p0.pop();
-            }
-        }
-        None=> {
-            return;
-        }
-    }
-
-}
-    
-fn print_val_params(p0: &mut Vec<String>, measurements: &Vec<Measurement>) {
-        
-    for measurement in measurements {
-        p0.push(measurement.get_title().clone());
-
-        match &measurement.get_submeasurements() {
-            Some(nested_measurements) =>
-            {
-                print_val_params(p0, nested_measurements);
-            }
-            _ => (),
-        }
-        print_val_value(p0, &measurement.get_values());
-        p0.pop();
-    }
-}    
-
-fn group_val_by_diag_addr(val: Option<&VehicleAnalysisLog>) -> HashMap<String, Vec<String>> {
-    let mut val_groups: HashMap<String, Vec<String>> = HashMap::new();
+fn build_val_map(val: Option<&VehicleAnalysisLog>) -> HashMap<(String), HashMap<String, String>> {
+         
+    let mut val_map: HashMap<String, HashMap<String, String>> = HashMap::new();
 
     if let Some(vehicle_log) = val {
         for section in &vehicle_log.result.sections {
-            let m = &section.get_measurement_by_title(&"Identification".to_string()).unwrap();
 
-            let value_txt = get_section_diagr_addr(section, &m);
+            let identification = &section.get_measurement_by_title(&"Identification".to_string()).unwrap();
+
+            let diagr_addr = get_section_diagr_addr( &identification);
             
-            println!("Section: {} -> {} -> {}", section.get_title(), m.get_title(), value_txt);
+            if diagr_addr == "<undefined>" {
+                println!("Diagr addr for [{}] not found!", section.get_title().clone());
+            }
+        
+            let measurements  = section.get_measurements(); 
+            
+            for measurement in measurements {
+                
+                // Skipping nested measurements as Faults are not relevant
+                
+                let values = &measurement.get_values();
 
-            val_groups.entry(value_txt.clone())
-                .or_insert_with(Vec::new)
-                .push((*section.get_title()).clone());
+                match &values {
+                    Some(values) => { 
+
+                        for value in *values {
+                            
+                            let mut value_txt = value.get_value().unwrap_or(&"<undefined>".to_string()).clone(); 
+                            let unit_txt = value.get_unit();
+                            
+                            match unit_txt {
+                                Some(unit_txt) => value_txt = format!("{}{}", value_txt, unit_txt),
+                                None => (),
+                            }
+                            val_map
+                                .entry(diagr_addr.clone())
+                                .or_insert_with(HashMap::new)
+                                .insert(value.get_label().clone(), value_txt);
+                        }
+                    }
+                    None=> (),
+                }
+            }
         }
     }
 
-    val_groups
+    val_map
 }
 
-fn get_section_diagr_addr(section: &Section, m: &Measurement) -> String {
+fn get_section_diagr_addr(measurement: &Measurement) -> String {
 
     let labels = [
         "TABROW_SubsyIdent.Param_SubsyIdentID",
@@ -355,13 +371,10 @@ fn get_section_diagr_addr(section: &Section, m: &Measurement) -> String {
         "System_Identification.System_Identification_Param_SubsyIdentID",
     ];
 
-    let value_txt = labels.iter()
-        .filter_map(|label| m.get_value_by_label(&label.to_string()))
+    let diag_addr = labels.iter()
+        .filter_map(|label| measurement.get_value_by_label(&label.to_string()))
         .map(|value| value.get_value().unwrap_or(&"<undefined>".to_string()).to_string())
         .next()
         .unwrap_or_else(|| "<undefined>".to_string());
-
-   
-    
-    value_txt
+    diag_addr
 }
