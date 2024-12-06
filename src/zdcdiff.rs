@@ -1,5 +1,5 @@
 use anyhow::Result;
-use piwis_val::{Measurement, VehicleAnalysisLog};
+use piwis_val::{Measurement, Section, VehicleAnalysisLog};
 use piwis_zdc::{InstrLst};
 use indexmap::{IndexMap, IndexSet};
 use serde::de::value;
@@ -63,43 +63,42 @@ fn strip_units(input: &str) -> String {
             let re = Regex::new(&format!(r"{}", seq)).unwrap();
             result = re.replace_all(&result, "").to_string();
         }
-        result.trim().to_string()
+        result = result.trim().to_string();
+
+        // Strip leading zeros from integer numbers
+        if let Ok(num) = result.parse::<i64>() {
+            return num.to_string();
+        }
+
+        result
     } else {
         // Return the input unchanged if it doesn't match the pattern
         input.to_string()
     }
 }
 
-fn get_val_value(val_map: HashMap<String, HashMap<String, String>>, diag_addr: &str, target_name: &str) -> Option<String> {
-    
+fn get_val_section(val_map: HashMap<String, HashMap<String, String>>, diag_addr: &str) -> Option<HashMap<String, String>> {
+    // Strip leading zeros and convert to lowercase
     let diag_addr = diag_addr.trim_start_matches('0').to_lowercase();
-    
-    let value_map = val_map.get(&diag_addr); 
- 
-    match value_map {
-        Some(value_map) => {
-            let target_value = value_map.get(target_name);
-            return target_value.cloned();
-        }
-        None => {
-         
-            let value_map = val_map.get(&"<undefined>".to_string());           
-            match value_map {
-                Some(value_map) => {         
-                    let target_value = value_map.get(target_name);                    
-                    match target_value {
-                        Some(target_value) => {         
-                            Some(target_value.clone())
-                        }
-                        
-                        None => {         
-                            None
-                        }
-                    }
-                }
-                None => None,
-            }
-        },
+
+    // Try to get the section map for the given diag_addr
+    if let Some(section_map) = val_map.get(&diag_addr) {
+        return Some(section_map.clone());
+    }
+
+    // If not found, try to get "the kitchen sink" section map for "<undefined>"
+    if let Some(section_map) = val_map.get("<undefined>") {
+        return Some(section_map.clone());
+    }
+
+    // If still not found, return None
+    None
+}
+
+fn get_val_value(section_map: Option<HashMap<String, String>>, target_name: &str) -> Option<String> {
+    match section_map {
+        Some(section_map) => section_map.get(target_name).cloned(),
+        None => None,
     }
 }
 
@@ -161,10 +160,10 @@ fn build_zdc_map(instr_lsts: &[&InstrLst]) -> IndexMap<(String, String), Vec<(St
 }
 
 fn process_maps(
-    diag_addr: &str,
     parameter_map: IndexMap<(String, String), Vec<(String, String)>>,
-    val_map: Option<HashMap<String, HashMap<String, String>>>)
+    section_map: Option<HashMap<String, String>>)
  {
+        
     for ((srv_name, name), value_list) in &parameter_map {
                 
         let mut unique_values = HashSet::new();
@@ -183,8 +182,8 @@ fn process_maps(
   
         let target_name = format!("{}.{}", srv_name, name);
 
-        let target_value = match &val_map {           
-            Some(val_map) => get_val_value(val_map.clone(), diag_addr, &target_name),
+        let target_value = match section_map {
+            Some(ref section_map) => get_val_value(Some(section_map.clone()), &target_name),
             None => None,
         };
 
@@ -263,16 +262,21 @@ fn compare_zdc_val(
         
         if !zdc_map.is_empty() {
                // Deduplicate zdc_files
-               let unique_files = dedup_zdc_files(&instr_lsts);
+            let unique_files = dedup_zdc_files(&instr_lsts);
 
-               // Print diag_addr and deduplicated zdc_files
-               println!(
-                   "Diagnosis Address: {} >> ZDC: {}",
-                   diag_addr,
-                   unique_files.join(",")
-               );
+            let section_map = match &val_map {           
+                    Some(val_map) => get_val_section(val_map.clone(), &diag_addr),
+                    None => None,
+            };
             
-            process_maps(&diag_addr, zdc_map, val_map.clone());
+            // Print diag_addr and deduplicated zdc_files
+            println!(               
+               "Diagnosis Address: {} >> ZDC: {}",
+               diag_addr,
+               unique_files.join(",")
+            );
+            
+            process_maps(zdc_map, section_map.clone());
         }
     }
 }
@@ -305,9 +309,7 @@ pub fn zdcdiff(args: &ZdcDiffArgs) -> Result<()> {
         compare_zdc_val(
             &instr_lsts,
             None);
-    }
-
-  
+    }  
     Ok(())
 }
 
@@ -323,9 +325,15 @@ fn build_val_map(val: Option<&VehicleAnalysisLog>) -> HashMap<(String), HashMap<
             let diagr_addr = get_section_diagr_addr( &identification);
             
             if diagr_addr == "<undefined>" {
-                println!("Diagr addr for [{}] not found!", section.get_title().clone());
+                println!("[{}] Diagr addr for not found!", section.get_title().clone());
             }
-        
+            else {
+                val_map
+                .entry(diagr_addr.clone())
+                .or_insert_with(HashMap::new)
+                .insert("<TITLE>".to_string(), section.get_title().clone());
+            }
+
             let measurements  = section.get_measurements(); 
             
             for measurement in measurements {
