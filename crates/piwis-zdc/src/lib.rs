@@ -14,7 +14,7 @@ pub struct InstrLst {
     #[serde(rename = "@DATEI-ID")]
     pub file_id: String,
     #[serde(rename = "@VERSION-INHALT")]
-    pub ver_content: String,
+    pub cont_ver: String,
     #[serde(rename = "diagnosisAddress")]
     pub diag_addr : DiagAddr,
     #[serde(rename="$value")]
