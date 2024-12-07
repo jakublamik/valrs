@@ -85,7 +85,7 @@ fn strip_units(input: &str) -> String {
     }
 }
 
-fn get_val_section(val_map: HashMap<String, HashMap<String, String>>, diag_addr: &str) -> Option<HashMap<String, String>> {
+fn get_val_section(val_map: HashMap<String, HashMap<String, Vec<String>>>, diag_addr: &str) -> Option<HashMap<String, Vec<String>>> {
     // Strip leading zeros and convert to lowercase
     let diag_addr = diag_addr.trim_start_matches('0').to_lowercase();
 
@@ -103,9 +103,17 @@ fn get_val_section(val_map: HashMap<String, HashMap<String, String>>, diag_addr:
     None
 }
 
-fn get_val_value(section_map: Option<HashMap<String, String>>, target_name: &str) -> Option<String> {
+fn get_val_value(section_map: Option<HashMap<String, Vec<String>>>, target_name: &str) -> Option<String> {
     match section_map {
-        Some(section_map) => section_map.get(target_name).cloned(),
+        Some(section_map) => {
+            if let Some(values) = section_map.get(target_name) {
+                let unique_values: HashSet<_> = values.iter().cloned().collect();
+                if unique_values.len() == 1 {
+                    return unique_values.into_iter().next();
+                }
+            }
+            None
+        }
         None => None,
     }
 }
@@ -177,11 +185,11 @@ fn build_zdc_map(instr_lsts: &[&InstrLst]) -> IndexMap<(String, String), Vec<(St
 }
 
 fn process_maps(
-    parameter_map: IndexMap<(String, String), Vec<(String, String)>>,
-    section_map: Option<HashMap<String, String>>,
+    zdc_parameter_map: IndexMap<(String, String), Vec<(String, String)>>,
+    val_section_map: Option<HashMap<String, Vec<String>>>,
 ) {
 
-    for ((srv_name, name), value_list) in &parameter_map {
+    for ((srv_name, name), value_list) in &zdc_parameter_map {
         
         let mut unique_values = HashSet::new();
         let mut all_phases = vec![];
@@ -196,11 +204,11 @@ fn process_maps(
         let unique_values: Vec<_> = unique_values.into_iter().collect();
         let target_name = format!("{}.{}", srv_name, name);
 
-        let target_value = section_map
+        let target_val = val_section_map
             .as_ref()
             .and_then(|map| get_val_value(Some(map.clone()), &target_name));
 
-        match target_value {
+        match target_val {
             None => match unique_values.len() {
                 1 => {
                     let message = if all_values.len() > 1 {
@@ -253,7 +261,7 @@ fn process_maps(
 
 fn compare_zdc_val(
     zdc_instr_lsts: &[InstrLst],
-    val_map: Option<HashMap<String, HashMap<String, String>>>,
+    val_map: Option<HashMap<String, HashMap<String, Vec<String>>>>,
 ) {
     let zdc_groups = group_zdc_by_diag_addr(zdc_instr_lsts);
 
@@ -266,7 +274,7 @@ fn compare_zdc_val(
             let unique_files = dedup_zdc_files(&instr_lsts);
 
             // Get section map
-            let section_map = val_map
+            let val_section_map = val_map
                 .as_ref()
                 .and_then(|val_map| get_val_section(val_map.clone(), &diag_addr));
 
@@ -275,10 +283,10 @@ fn compare_zdc_val(
                 "Diagnosis Address: [{}] >> ZDC File: [{}] >> VAL: [{}]",
                 diag_addr,
                 unique_files.join(","),
-                section_map.as_ref().and_then(|map| map.get("<TITLE>")).unwrap_or(&"<undefined>".to_string()),                
+                get_val_value(val_section_map.clone(), "<TITLE>").map_or_else(|| "<undefined>".to_string(), |v| v),                
             );
 
-            process_maps(zdc_map, section_map);
+            process_maps(zdc_map, val_section_map);
         }
     }
 }
@@ -315,25 +323,27 @@ pub fn zdcdiff(args: &ZdcDiffArgs) -> Result<()> {
     Ok(())
 }
 
-fn build_val_map(val: Option<&VehicleAnalysisLog>) -> HashMap<String, HashMap<String, String>> {
+fn build_val_map(val: Option<&VehicleAnalysisLog>) -> HashMap<String, HashMap<String, Vec<String>>> {
 
-    let mut val_map: HashMap<String, HashMap<String, String>> = HashMap::new();
+    let mut val_map: HashMap<String, HashMap<String, Vec<String>>> = HashMap::new();
 
     if let Some(vehicle_log) = val {
         for section in &vehicle_log.result.sections {
             
-            let secion_info = get_section_info(section);
+            let section_info = get_val_section_info(section);
 
-            if secion_info.diag_addr == "<undefined>" {
+            if section_info.diag_addr == "<undefined>" {
                 println!("[{}] Diagr addr not found!", section.get_title());
             } else {
                 val_map
-                    .entry(secion_info.diag_addr.clone())
+                    .entry(section_info.diag_addr.clone())
                     .or_insert_with(HashMap::new)
-                    .insert("<TITLE>".to_string(), secion_info.title);
+                    .entry("<TITLE>".to_string())
+                    .or_insert_with(Vec::new)
+                    .push(section_info.title.clone());
             }
 
-            for measurement in section.get_measurements() {
+             for measurement in section.get_measurements() {
                 if let Some(values) = measurement.get_values() {
                     for value in values {
                         let mut value_txt = value.get_value().unwrap_or(&"<undefined>".to_string()).clone();
@@ -341,9 +351,11 @@ fn build_val_map(val: Option<&VehicleAnalysisLog>) -> HashMap<String, HashMap<St
                             value_txt = format!("{}{}", value_txt, unit_txt);
                         }
                         val_map
-                            .entry(secion_info.diag_addr.clone())
+                            .entry(section_info.diag_addr.clone())
                             .or_insert_with(HashMap::new)
-                            .insert(value.get_label().clone(), value_txt);
+                            .entry(value.get_label().clone())
+                            .or_insert_with(Vec::new)
+                            .push(value_txt);
                     }
                 }
             }
@@ -353,10 +365,10 @@ fn build_val_map(val: Option<&VehicleAnalysisLog>) -> HashMap<String, HashMap<St
     val_map
 }
 
-fn get_section_info(section: &Section) -> SectionInfo {
+fn get_val_section_info(section: &Section) -> SectionInfo {
 
 
-    let diag_addr = get_measurment_value(&section, &vec![
+    let diag_addr = get_val_measurment(&section, &vec![
         "TABROW_SubsyIdent.Param_SubsyIdentID".to_string(),
         "Gateway_Identification.Gateway_Identification_Diagnose_ID_VW".to_string(),
         "TABROW_BusmaIdent.Param_ECUID".to_string(),
@@ -364,9 +376,9 @@ fn get_section_info(section: &Section) -> SectionInfo {
         "System_Identification.System_Identification_Param_SubsyIdentID".to_string(),
     ], "Identification".to_string());
 
-    let file_id = get_measurment_value(&section, &vec!["DataSetNumberOrECUDataContaNumbe.PartNumber".to_string()], "Codierung".to_string());
+    let file_id = get_val_measurment(&section, &vec!["DataSetNumberOrECUDataContaNumbe.PartNumber".to_string()], "Codierung".to_string());
 
-    let cont_ver = get_measurment_value(&section, &vec!["DataSetVesiNumbe.Version".to_string()], "Codierung".to_string());
+    let cont_ver = get_val_measurment(&section, &vec!["DataSetVesiNumbe.Version".to_string()], "Codierung".to_string());
 
     SectionInfo {
         diag_addr,
@@ -376,7 +388,7 @@ fn get_section_info(section: &Section) -> SectionInfo {
     }
 }
 
-fn get_measurment_value(section: &Section, labels: &[String], title: String) -> String {
+fn get_val_measurment(section: &Section, labels: &[String], title: String) -> String {
     
     let measurement = section.get_measurement_by_title(&title);
 
